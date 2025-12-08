@@ -1,0 +1,29 @@
+trigger:
+- main
+
+pool:
+  vmImage: ubuntu-latest
+
+steps:
+- task: NodeTool@0
+  inputs:
+    versionSpec: '20.x'
+  displayName: 'Install Node.js'
+
+- script: |
+    npm install
+    npm run build
+  displayName: 'Install packages and build Vite app'
+
+- task: CopyFiles@2
+  inputs:
+    contents: 'dist/**'
+    targetFolder: '$(Build.ArtifactStagingDirectory)/dist'
+  displayName: 'Copy build output'
+
+- task: PublishBuildArtifacts@1
+  inputs:
+    PathtoPublish: '$(Build.ArtifactStagingDirectory)/dist'
+    ArtifactName: 'frontend'
+    publishLocation: 'Container'
+  displayName: 'Publish artifact'
