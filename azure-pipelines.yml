@@ -5,25 +5,29 @@ pool:
   vmImage: ubuntu-latest
 
 steps:
+# Install Node.js 20
 - task: NodeTool@0
   inputs:
     versionSpec: '20.x'
   displayName: 'Install Node.js'
 
+# Install dependencies + build Vite app
 - script: |
     npm install
     npm run build
   displayName: 'Install packages and build Vite app'
 
+# Copy build output to artifact staging
 - task: CopyFiles@2
   inputs:
     contents: 'dist/**'
     targetFolder: '$(Build.ArtifactStagingDirectory)/dist'
   displayName: 'Copy build output'
 
+# Publish artifact so Release pipeline can deploy it
 - task: PublishBuildArtifacts@1
   inputs:
     PathtoPublish: '$(Build.ArtifactStagingDirectory)/dist'
     ArtifactName: 'frontend'
     publishLocation: 'Container'
-  displayName: 'Publish artifact'
+  displayName: 'Publish build artifacts'
