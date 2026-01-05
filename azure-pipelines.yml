@@ -11,10 +11,24 @@ steps:
     versionSpec: '20.x'
   displayName: 'Install Node.js'
 
-# Install dependencies + build Vite app
+# Install dependencies + build Vite app (FIXED)
 - script: |
-    npm install
-    npm run build
+    set -e
+
+    node -v
+    npm -v
+
+    # Clean, reproducible install (recommended in CI)
+    npm ci
+
+    echo "---- vite binary status ----"
+    ls -la node_modules/.bin/vite || true
+
+    # Fix permission if needed
+    chmod +x node_modules/.bin/vite || true
+
+    # Build using npx (avoids direct .bin execution issues)
+    npx vite build
   displayName: 'Install packages and build Vite app'
 
 # Copy build output to artifact staging
