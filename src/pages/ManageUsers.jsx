@@ -1,11 +1,12 @@
 // src/pages/ManageUsers.jsx
 // ======================================================================
-// Manage Users (Updated to new centralized API architecture)
+// Manage Users (Okta SAML + Session-Based Authentication)
 // ----------------------------------------------------------------------
-// ✔ Removed hardcoded backend URLs
+// ✔ No hardcoded backend URLs
 // ✔ Uses apiUrl() and apiFetch() everywhere
-// ✔ Automatic MSAL token handling (via apiFetch)
-// ✔ Preserved all original functionality
+// ✔ Session-based authentication (cookies)
+// ✔ Compatible with Okta SAML
+// ✔ Preserves all original functionality
 // ======================================================================
 
 import React, { useEffect, useState, useRef } from "react";
@@ -81,7 +82,7 @@ export default function ManageUsers() {
   });
 
   // ======================================================================
-  // FETCH USERS (Centralized API call)
+  // FETCH USERS (Session-based API call)
   // ======================================================================
   const fetchUsers = async () => {
     try {

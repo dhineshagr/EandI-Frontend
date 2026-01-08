@@ -1,23 +1,20 @@
 // src/pages/ReportAuditLog.jsx
 // ======================================================================
-// Report Audit Log (Production Ready)
+// Report Audit Log (Okta SAML + Session-Based Auth)
 // ----------------------------------------------------------------------
-// ✔ Replaced all hardcoded URLs with apiUrl()
-// ✔ Centralized API calls through apiFetch()
-// ✔ Centralized MSAL token usage
-// ✔ Improved sorting, search, pagination
-// ✔ Preserved ALL existing functionality
+// ✔ No MSAL
+// ✔ No frontend token handling
+// ✔ Uses apiFetch() with session cookies
+// ✔ Preserves sorting, search, pagination, UI
 // ======================================================================
 
 import React, { useEffect, useState, useMemo } from "react";
-import { useMsal } from "@azure/msal-react";
 import { useParams, useNavigate } from "react-router-dom";
 
 import { apiFetch } from "../api/apiClient";
 import { apiUrl } from "../api/config";
 
 export default function ReportAuditLog() {
-  const { instance, accounts } = useMsal();
   const { reportNumber } = useParams();
   const navigate = useNavigate();
 
@@ -35,39 +32,12 @@ export default function ReportAuditLog() {
   const [pageSize, setPageSize] = useState(25);
 
   // -------------------------------------------------------------------
-  // 🔐 TOKEN HANDLING — MSAL + fallback localStorage
-  // -------------------------------------------------------------------
-  const getAccessToken = async () => {
-    try {
-      if (accounts.length > 0) {
-        const tokenResp = await instance.acquireTokenSilent({
-          scopes: ["api://e5614425-4dbe-4f35-b725-64b9a2b92827/access_as_user"],
-          account: accounts[0],
-        });
-        return tokenResp.accessToken;
-      }
-      return localStorage.getItem("authToken");
-    } catch (err) {
-      console.warn("⚠️ MSAL token failed, using fallback localStorage");
-      return localStorage.getItem("authToken");
-    }
-  };
-
-  // -------------------------------------------------------------------
-  // 📡 FETCH AUDIT LOG
+  // 📡 FETCH AUDIT LOG (Session-based)
   // -------------------------------------------------------------------
   const fetchLogs = async () => {
     setLoading(true);
     try {
-      const token = await getAccessToken();
-
-      const data = await apiFetch(
-        apiUrl(`/reports/${reportNumber}/audit-log`),
-        {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        }
-      );
-
+      const data = await apiFetch(apiUrl(`/reports/${reportNumber}/audit-log`));
       setLogs(data.logs || []);
     } catch (err) {
       console.error("❌ Failed to load audit logs:", err);
@@ -141,9 +111,9 @@ export default function ReportAuditLog() {
 
   const toggleSort = (field) => {
     setPage(1);
-    if (sortField === field)
+    if (sortField === field) {
       setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
-    else {
+    } else {
       setSortField(field);
       setSortDir("asc");
     }
@@ -157,10 +127,11 @@ export default function ReportAuditLog() {
   // -------------------------------------------------------------------
   // ⏳ LOADING STATE
   // -------------------------------------------------------------------
-  if (loading)
+  if (loading) {
     return (
       <div className="p-6 text-slate-600 animate-pulse">Loading audit log…</div>
     );
+  }
 
   // -------------------------------------------------------------------
   // 🎨 UI RENDER
@@ -226,23 +197,18 @@ export default function ReportAuditLog() {
                 <td className="px-3 py-2 border">{log.report_number}</td>
                 <td className="px-3 py-2 border">{log.row_key}</td>
                 <td className="px-3 py-2 border">{log.field_name}</td>
-
                 <td className="px-3 py-2 border">
                   {log.old_value ?? <span className="text-slate-400">–</span>}
                 </td>
-
                 <td className="px-3 py-2 border">
                   {log.new_value ?? <span className="text-slate-400">–</span>}
                 </td>
-
                 <td className="px-3 py-2 border">{log.changed_by}</td>
-
                 <td className="px-3 py-2 border">
                   {log.change_reason ?? (
                     <span className="text-slate-400">–</span>
                   )}
                 </td>
-
                 <td className="px-3 py-2 border">
                   {log.changed_at_utc
                     ? new Date(log.changed_at_utc).toLocaleString()

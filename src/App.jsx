@@ -3,18 +3,17 @@ import {
   BrowserRouter as Router,
   Routes,
   Route,
-  Navigate,
   Outlet,
 } from "react-router-dom";
 
 import ProtectedRoute from "./components/ProtectedRoute";
 import Header from "./components/Header";
 
+import LoginPage from "./pages/LoginPage";
 import UploadDashboard from "./pages/UploadDashboard";
 import TemplatePage from "./pages/TemplatePage";
 import ReportsDashboard from "./pages/ReportsDashboard";
 import ReportDetail from "./pages/ReportDetail";
-import LoginPage from "./pages/LoginPage";
 import LogoutPage from "./pages/LogoutPage";
 import UnauthorizedPage from "./pages/UnauthorizedPage";
 import NotFoundPage from "./pages/NotFoundPage";
@@ -23,7 +22,9 @@ import UserAuditLog from "./pages/UserAuditLog";
 import ReportAuditLog from "./pages/ReportAuditLog";
 import SspReportsDashboard from "./pages/SspReportsDashboard";
 
-// Layout with header for all authenticated pages
+/* ===============================
+   Layout with Header (Auth only)
+================================ */
 const AppLayout = () => (
   <>
     <Header />
@@ -35,10 +36,18 @@ export default function App() {
   return (
     <Router>
       <Routes>
-        {/* Routes with Header */}
-        <Route element={<AppLayout />}>
-          <Route path="/" element={<Navigate to="/upload" replace />} />
+        {/* =========================
+           PUBLIC ROUTES
+        ========================== */}
+        <Route path="/" element={<LoginPage />} />
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/logout" element={<LogoutPage />} />
+        <Route path="/unauthorized" element={<UnauthorizedPage />} />
 
+        {/* =========================
+           AUTHENTICATED ROUTES
+        ========================== */}
+        <Route element={<AppLayout />}>
           <Route
             path="/upload"
             element={
@@ -60,7 +69,7 @@ export default function App() {
           <Route
             path="/reports"
             element={
-              <ProtectedRoute requireInternal={true}>
+              <ProtectedRoute requireInternal>
                 <ReportsDashboard />
               </ProtectedRoute>
             }
@@ -69,7 +78,7 @@ export default function App() {
           <Route
             path="/ManageUsers"
             element={
-              <ProtectedRoute requireInternal={true}>
+              <ProtectedRoute requireInternal>
                 <ManageUsers />
               </ProtectedRoute>
             }
@@ -78,7 +87,7 @@ export default function App() {
           <Route
             path="/UserAuditLog"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute requireInternal>
                 <UserAuditLog />
               </ProtectedRoute>
             }
@@ -86,10 +95,21 @@ export default function App() {
 
           <Route
             path="/reports/:reportNumber/audit-log"
-            element={<ReportAuditLog />}
+            element={
+              <ProtectedRoute requireInternal>
+                <ReportAuditLog />
+              </ProtectedRoute>
+            }
           />
 
-          <Route path="/ssp/reports" element={<SspReportsDashboard />} />
+          <Route
+            path="/ssp/reports"
+            element={
+              <ProtectedRoute requireInternal>
+                <SspReportsDashboard />
+              </ProtectedRoute>
+            }
+          />
 
           <Route
             path="/reports/:reportNumber"
@@ -99,15 +119,11 @@ export default function App() {
               </ProtectedRoute>
             }
           />
-
-          <Route path="/unauthorized" element={<UnauthorizedPage />} />
         </Route>
 
-        {/* No header for login/logout */}
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/logout" element={<LogoutPage />} />
-
-        {/* Catch-all – no header */}
+        {/* =========================
+           FALLBACK
+        ========================== */}
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </Router>

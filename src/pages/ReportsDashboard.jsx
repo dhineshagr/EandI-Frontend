@@ -1,16 +1,16 @@
 // src/pages/ReportsDashboard.jsx
 // ======================================================================
-// Reports Dashboard (Production Ready)
+// Reports Dashboard (Okta SAML + Session-Based Auth)
 // ----------------------------------------------------------------------
-// ✔ Removed all hardcoded API URLs
-// ✔ Uses shared apiFetch + apiUrl utilities
-// ✔ Preserves all sorting, searching, pagination, navigation
-// ✔ Cleaned code structure + added professional comments
+// ✔ No MSAL
+// ✔ No frontend token handling
+// ✔ Uses apiFetch() with session cookies
+// ✔ No hardcoded API URLs
+// ✔ All existing functionality preserved
 // ======================================================================
 
 import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { useMsal } from "@azure/msal-react";
 
 import {
   Loader,
@@ -26,7 +26,6 @@ import { apiUrl } from "../api/config";
 
 export default function ReportsDashboard() {
   const navigate = useNavigate();
-  const { instance, accounts } = useMsal();
 
   // -------------------------------------------------------------------
   // STATE
@@ -42,7 +41,7 @@ export default function ReportsDashboard() {
   const [pageSize, setPageSize] = useState(25);
 
   // ======================================================================
-  // 📡 FETCH REPORTS (Centralized API call)
+  // 📡 FETCH REPORTS (Session-based)
   // ======================================================================
   const fetchReports = useCallback(async () => {
     setLoading(true);
@@ -63,16 +62,16 @@ export default function ReportsDashboard() {
   }, [fetchReports]);
 
   // ======================================================================
-  // 🔍 SEARCH + SORT + PAGINATION PROCESSING
+  // 🔍 SEARCH + SORT + PAGINATION
   // ======================================================================
   const processed = useMemo(() => {
     let list = [...reports];
 
-    // 🔎 Search filter
+    // Search
     const q = search.trim().toLowerCase();
     if (q) {
-      list = list.filter((rep) => {
-        const hay = [
+      list = list.filter((rep) =>
+        [
           rep.filename,
           rep.uploaded_by,
           rep.status,
@@ -81,13 +80,12 @@ export default function ReportsDashboard() {
         ]
           .filter(Boolean)
           .join(" ")
-          .toLowerCase();
-
-        return hay.includes(q);
-      });
+          .toLowerCase()
+          .includes(q)
+      );
     }
 
-    // 🔽 Sorting
+    // Sort
     list.sort((a, b) => {
       const av = a[sortField] ?? "";
       const bv = b[sortField] ?? "";
@@ -101,7 +99,7 @@ export default function ReportsDashboard() {
         : String(bv).localeCompare(String(av));
     });
 
-    // 📄 Pagination
+    // Pagination
     const total = list.length;
     const start = (page - 1) * pageSize;
     const slice = list.slice(start, start + pageSize);
@@ -112,7 +110,7 @@ export default function ReportsDashboard() {
   const totalPages = Math.max(1, Math.ceil(processed.total / pageSize));
 
   // ======================================================================
-  // 🔽 SORTING HANDLER
+  // 🔽 SORT HANDLER
   // ======================================================================
   const toggleSort = (field) => {
     setPage(1);
@@ -130,7 +128,7 @@ export default function ReportsDashboard() {
     ) : null;
 
   // ======================================================================
-  // ⏳ LOADING STATE
+  // ⏳ LOADING
   // ======================================================================
   if (loading) {
     return (
@@ -141,7 +139,7 @@ export default function ReportsDashboard() {
   }
 
   // ======================================================================
-  // 🎨 MAIN RENDER
+  // 🎨 UI
   // ======================================================================
   return (
     <div className="p-6 space-y-6">
@@ -150,7 +148,7 @@ export default function ReportsDashboard() {
         List of uploaded reports with statuses, counts, and actions.
       </p>
 
-      {/* 🔍 SEARCH BAR */}
+      {/* Search */}
       <div className="bg-white shadow p-4 rounded flex gap-4 items-center">
         <input
           type="text"
@@ -164,7 +162,7 @@ export default function ReportsDashboard() {
         />
       </div>
 
-      {/* 📋 REPORTS TABLE */}
+      {/* Table */}
       <div className="overflow-x-auto bg-white shadow rounded-lg">
         <table className="min-w-full border text-sm">
           <thead className="bg-slate-100 text-left">
@@ -201,7 +199,6 @@ export default function ReportsDashboard() {
                 <td className="px-3 py-2 border">{rep.report_number}</td>
                 <td className="px-3 py-2 border">{rep.report_type}</td>
 
-                {/* File Name */}
                 <td className="px-3 py-2 border flex items-center gap-2">
                   <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
                   {rep.filename}
@@ -209,7 +206,6 @@ export default function ReportsDashboard() {
 
                 <td className="px-3 py-2 border">{rep.uploaded_by}</td>
 
-                {/* STATUS BADGES */}
                 <td className="px-3 py-2 border">
                   {rep.status === "approved" && (
                     <span className="flex items-center gap-1 text-emerald-600">
@@ -236,19 +232,16 @@ export default function ReportsDashboard() {
                   )}
                 </td>
 
-                {/* Uploaded at */}
                 <td className="px-3 py-2 border">
                   {rep.uploaded_at_utc
                     ? new Date(rep.uploaded_at_utc).toLocaleString()
                     : "-"}
                 </td>
 
-                {/* Counts */}
                 <td className="px-3 py-2 border">{rep.passed_count ?? 0}</td>
                 <td className="px-3 py-2 border">{rep.failed_count ?? 0}</td>
                 <td className="px-3 py-2 border">{rep.approved_count ?? 0}</td>
 
-                {/* View Details */}
                 <td className="px-3 py-2 border">
                   <button
                     onClick={() => navigate(`/reports/${rep.report_number}`)}
@@ -260,7 +253,6 @@ export default function ReportsDashboard() {
               </tr>
             ))}
 
-            {/* EMPTY STATE */}
             {processed.slice.length === 0 && (
               <tr>
                 <td colSpan="10" className="text-center py-4 text-slate-500">
@@ -272,7 +264,7 @@ export default function ReportsDashboard() {
         </table>
       </div>
 
-      {/* 📄 PAGINATION CONTROLS */}
+      {/* Pagination */}
       <div className="flex justify-between items-center mt-4">
         <div className="flex items-center gap-2">
           <span className="text-sm text-gray-600">Rows per page:</span>
@@ -285,10 +277,11 @@ export default function ReportsDashboard() {
             }}
             className="border p-1 rounded"
           >
-            <option value={10}>10</option>
-            <option value={25}>25</option>
-            <option value={50}>50</option>
-            <option value={100}>100</option>
+            {[10, 25, 50, 100].map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
           </select>
 
           <span className="text-sm text-gray-600 ml-3">
@@ -302,7 +295,6 @@ export default function ReportsDashboard() {
         </div>
 
         <div className="flex gap-2 items-center">
-          {/* Prev */}
           <button
             onClick={() => setPage((p) => Math.max(1, p - 1))}
             disabled={page === 1}
@@ -315,7 +307,6 @@ export default function ReportsDashboard() {
             Page {page} / {totalPages}
           </span>
 
-          {/* Next */}
           <button
             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
             disabled={page >= totalPages}

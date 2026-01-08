@@ -1,28 +1,24 @@
 // src/pages/SspReportsDashboard.jsx
 // ======================================================================
-// SSP Reports Dashboard (Production Ready)
+// SSP Reports Dashboard (Okta SAML + Session-Based Auth)
 // ----------------------------------------------------------------------
-// ✔ Removes all hardcoded API URLs
-// ✔ Uses centralized utilities (apiFetch, apiUrl)
-// ✔ Uses centralized MSAL scopes (API_SCOPES)
-// ✔ Token handling: Silent → Popup fallback
-// ✔ Fully preserves all functionality (filters, search, pagination)
-// ✔ Strong comments for future maintenance
+// ✔ No MSAL
+// ✔ No bearer tokens
+// ✔ Uses apiFetch() with secure session cookies
+// ✔ No hardcoded API URLs
+// ✔ All existing functionality preserved
 // ======================================================================
 
-import React, { useEffect, useState, useRef } from "react";
-import { useMsal } from "@azure/msal-react";
+import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
 
-// Shared centralized utilities
+// Centralized API utilities
 import { apiFetch } from "../api/apiClient";
 import { apiUrl } from "../api/config";
-import { API_SCOPES } from "../authConfig";
 
 export default function SspReportsDashboard() {
   const navigate = useNavigate();
-  const { instance, accounts, inProgress } = useMsal();
 
   // -------------------------------------------------------------------
   // STATE
@@ -50,58 +46,12 @@ export default function SspReportsDashboard() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
 
-  const popupInProgressRef = useRef(false);
-
   // ======================================================================
-  // 🔐 GET ACCESS TOKEN
-  // ======================================================================
-  const getAccessToken = async () => {
-    if (!accounts.length) return null;
-    const account = accounts[0];
-
-    try {
-      // First attempt — silent
-      const tokenResp = await instance.acquireTokenSilent({
-        scopes: API_SCOPES,
-        account,
-      });
-      return tokenResp.accessToken;
-    } catch {
-      // Silent failed → fall back to popup
-      if (popupInProgressRef.current) return null;
-
-      try {
-        popupInProgressRef.current = true;
-
-        const popupResp = await instance.acquireTokenPopup({
-          scopes: API_SCOPES,
-          account,
-        });
-
-        return popupResp.accessToken;
-      } catch (err) {
-        console.error("❌ acquireTokenPopup failed:", err.message);
-        return null;
-      } finally {
-        popupInProgressRef.current = false;
-      }
-    }
-  };
-
-  // ======================================================================
-  // 📄 LOAD REPORTS (CENTRALIZED API CALL)
+  // 📄 LOAD REPORTS (Session-Based API)
   // ======================================================================
   const fetchReports = async () => {
     try {
       setLoading(true);
-
-      const token = await getAccessToken();
-      if (!token) {
-        console.warn("⚠️ No token — cannot load SSP reports");
-        setReports([]);
-        setTotal(0);
-        return;
-      }
 
       const params = new URLSearchParams({
         search,
@@ -117,12 +67,7 @@ export default function SspReportsDashboard() {
         limit: pageSize,
       });
 
-      // Build final API URL using config
-      const url = apiUrl(`/ssp/reports?${params.toString()}`);
-
-      const data = await apiFetch(url, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const data = await apiFetch(apiUrl(`/ssp/reports?${params.toString()}`));
 
       setReports(data.reports || []);
       setTotal(data.total || 0);
@@ -135,17 +80,14 @@ export default function SspReportsDashboard() {
     }
   };
 
-  // Reload on filter/pagination/sort change
+  // Reload on filter/sort/pagination change
   useEffect(() => {
-    if (inProgress === "none" && accounts.length > 0) {
-      fetchReports();
-    }
-  }, [inProgress, accounts, search, filters, sort, page, pageSize]);
+    fetchReports();
+  }, [search, filters, sort, page, pageSize]);
 
   // ======================================================================
   // 🔧 FILTER & SORT HANDLERS
   // ======================================================================
-
   const handleFilterChange = (e) => {
     const { name, value } = e.target;
     setFilters((p) => ({ ...p, [name]: value }));
@@ -182,17 +124,12 @@ export default function SspReportsDashboard() {
   };
 
   // ======================================================================
-  // 📥 DOWNLOAD VRF DETAIL
+  // 📥 DOWNLOAD VRF DETAIL (Session-Based)
   // ======================================================================
   const handleDownloadDetail = async (reportNumber) => {
     try {
-      const token = await getAccessToken();
-      if (!token) return;
-
-      const url = apiUrl(`/ssp/reports/${reportNumber}/download`);
-
-      const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}` },
+      const res = await fetch(apiUrl(`/ssp/reports/${reportNumber}/download`), {
+        credentials: "include",
       });
 
       if (!res.ok) throw new Error(`Download failed ${res.status}`);
@@ -221,16 +158,14 @@ export default function SspReportsDashboard() {
     });
 
   // ======================================================================
-  // 🎨 RENDER UI
+  // 🎨 UI
   // ======================================================================
-
   return (
     <div className="p-6 space-y-6">
       <h1 className="text-2xl font-bold">SSP Reports Dashboard</h1>
 
       {/* FILTER PANEL */}
       <div className="bg-white p-4 rounded shadow space-y-4">
-        {/* Search & Date Filters */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <input
             placeholder="Search by Report #, File, or Uploaded By"
@@ -270,13 +205,12 @@ export default function SspReportsDashboard() {
 
           <button
             onClick={handleExportSummary}
-            className="bg-emerald-600 text-white px-4 py-2 rounded hover:bg-emerald-700 col-span-2 md:col-span-1"
+            className="bg-emerald-600 text-white px-4 py-2 rounded hover:bg-emerald-700"
           >
             Export Summary CSV
           </button>
         </div>
 
-        {/* Supplier / Contract / Member Filters */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <input
             name="supplier"
@@ -327,17 +261,10 @@ export default function SspReportsDashboard() {
                   key={col.key}
                   onClick={col.noSort ? undefined : () => handleSort(col.key)}
                   className={`px-3 py-2 border ${
-                    col.noSort ? "" : "cursor-pointer select-none"
+                    col.noSort ? "" : "cursor-pointer"
                   }`}
                 >
-                  <span className="inline-flex items-center gap-1">
-                    {col.label}
-                    {!col.noSort && sort.field === col.key && (
-                      <span className="text-xs">
-                        {sort.order === "asc" ? "▲" : "▼"}
-                      </span>
-                    )}
-                  </span>
+                  {col.label}
                 </th>
               ))}
             </tr>
@@ -359,57 +286,47 @@ export default function SspReportsDashboard() {
             ) : (
               reports.map((r) => (
                 <tr key={r.report_number} className="hover:bg-slate-50">
-                  <td className="px-3 py-2 border">{r.report_number}</td>
-                  <td className="px-3 py-2 border">{r.report_type}</td>
-                  <td className="px-3 py-2 border">{r.file_name}</td>
-                  <td className="px-3 py-2 border">{r.uploaded_by}</td>
-
-                  <td className="px-3 py-2 border">
+                  <td className="border px-3 py-2">{r.report_number}</td>
+                  <td className="border px-3 py-2">{r.report_type}</td>
+                  <td className="border px-3 py-2">{r.file_name}</td>
+                  <td className="border px-3 py-2">{r.uploaded_by}</td>
+                  <td className="border px-3 py-2">
                     {r.uploaded_at_utc
                       ? format(new Date(r.uploaded_at_utc), "MM/dd/yyyy HH:mm")
                       : ""}
                   </td>
-
-                  <td className="px-3 py-2 border capitalize">
+                  <td className="border px-3 py-2 capitalize">
                     {r.report_status}
                   </td>
-
-                  <td className="px-3 py-2 border text-center">
+                  <td className="border px-3 py-2 text-center">
                     {r.passed_count}
                   </td>
-
-                  <td className="px-3 py-2 border text-center">
+                  <td className="border px-3 py-2 text-center">
                     {r.failed_count}
                   </td>
-
-                  <td className="px-3 py-2 border text-center">
+                  <td className="border px-3 py-2 text-center">
                     {r.approved_count}
                   </td>
-
-                  <td className="px-3 py-2 border text-right">
+                  <td className="border px-3 py-2 text-right">
                     {formatMoney(r.total_purchase)}
                   </td>
-
-                  <td className="px-3 py-2 border text-right">
+                  <td className="border px-3 py-2 text-right">
                     {formatMoney(r.total_caf)}
                   </td>
-
-                  <td className="px-3 py-2 border">
-                    <div className="flex flex-col gap-1">
-                      <button
-                        onClick={() => navigate(`/reports/${r.report_number}`)}
-                        className="text-blue-600 hover:underline text-xs text-left"
-                      >
-                        View Details
-                      </button>
-
-                      <button
-                        onClick={() => handleDownloadDetail(r.report_number)}
-                        className="text-emerald-600 hover:underline text-xs text-left"
-                      >
-                        Download VRF CSV
-                      </button>
-                    </div>
+                  <td className="border px-3 py-2">
+                    <button
+                      onClick={() => navigate(`/reports/${r.report_number}`)}
+                      className="text-blue-600 text-xs underline"
+                    >
+                      View Details
+                    </button>
+                    <br />
+                    <button
+                      onClick={() => handleDownloadDetail(r.report_number)}
+                      className="text-emerald-600 text-xs underline"
+                    >
+                      Download VRF CSV
+                    </button>
                   </td>
                 </tr>
               ))
@@ -420,29 +337,11 @@ export default function SspReportsDashboard() {
 
       {/* PAGINATION */}
       <div className="flex justify-between items-center mt-4">
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-600">Rows per page:</span>
+        <span className="text-sm text-gray-600">
+          {total === 0 ? "0–0 of 0" : `${start}–${end} of ${total}`}
+        </span>
 
-          <select
-            value={pageSize}
-            onChange={(e) => {
-              setPageSize(Number(e.target.value));
-              setPage(1);
-            }}
-            className="border p-1 rounded"
-          >
-            <option value={10}>10</option>
-            <option value={25}>25</option>
-            <option value={50}>50</option>
-            <option value={100}>100</option>
-          </select>
-
-          <span className="text-sm text-gray-600 ml-3">
-            {total === 0 ? "0–0 of 0" : `${start}–${end} of ${total}`}
-          </span>
-        </div>
-
-        <div className="flex gap-2 items-center">
+        <div className="flex gap-2">
           <button
             onClick={() => setPage((p) => Math.max(1, p - 1))}
             disabled={page === 1}

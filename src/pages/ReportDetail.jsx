@@ -1,17 +1,16 @@
 // src/pages/ReportDetail.jsx
 // ======================================================================
-// Report Detail Page (Production Ready)
+// Report Detail Page (Okta SAML + Session-Based Auth)
 // ----------------------------------------------------------------------
-// ✔ Fully converted to centralized apiFetch + apiUrl
+// ✔ No MSAL
+// ✔ No frontend token handling
+// ✔ Uses apiFetch() with session cookies
 // ✔ NO hardcoded backend URLs
-// ✔ Improved edit/save logic
-// ✔ Fixed key warnings, conditional rendering, UI polish
 // ✔ All previous functionality preserved
 // ======================================================================
 
 import React, { useEffect, useState, useMemo, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { useMsal } from "@azure/msal-react";
 
 import {
   CheckCircle,
@@ -28,7 +27,6 @@ import { apiUrl } from "../api/config";
 export default function ReportDetail() {
   const { reportNumber } = useParams();
   const navigate = useNavigate();
-  const { instance, accounts } = useMsal();
 
   // -------------------------------------------------------------------
   // STATE
@@ -58,26 +56,7 @@ export default function ReportDetail() {
     row.id;
 
   // ======================================================================
-  // 🔐 Centralized Token Handling (MSAL → fallback localStorage)
-  // ======================================================================
-  const getAccessToken = async () => {
-    try {
-      if (accounts.length > 0) {
-        const tokenResp = await instance.acquireTokenSilent({
-          scopes: ["api://e5614425-4dbe-4f35-b725-64b9a2b92827/access_as_user"],
-          account: accounts[0],
-        });
-        return tokenResp.accessToken;
-      }
-      return localStorage.getItem("authToken");
-    } catch (err) {
-      console.warn("⚠️ Silent token fetch failed → fallback localStorage");
-      return localStorage.getItem("authToken");
-    }
-  };
-
-  // ======================================================================
-  // 📡 FETCH REPORT SUMMARY + ROWS
+  // 📡 FETCH REPORT SUMMARY + ROWS (Session-based)
   // ======================================================================
   const fetchData = useCallback(async () => {
     setLoading(true);

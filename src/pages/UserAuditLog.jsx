@@ -1,22 +1,19 @@
 // src/pages/UserAuditLog.jsx
 // ======================================================================
-// User Audit Log (Updated to new API architecture)
+// User Audit Log (Okta SAML + Session-Based Auth)
 // ----------------------------------------------------------------------
-// ✔ Removed hardcoded API URL
-// ✔ Using apiUrl() + apiFetch() for all backend calls
-// ✔ Fully compatible with MSAL token flow
-// ✔ Preserved ALL existing functionality
+// ✔ No MSAL
+// ✔ No token handling in frontend
+// ✔ Uses apiFetch() with session cookies
+// ✔ Preserves ALL existing functionality
 // ======================================================================
 
 import React, { useEffect, useMemo, useState } from "react";
-import { useMsal } from "@azure/msal-react";
 
 import { apiFetch } from "../api/apiClient";
 import { apiUrl } from "../api/config";
 
 export default function UserAuditLog() {
-  const { instance, accounts } = useMsal();
-
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -33,30 +30,11 @@ export default function UserAuditLog() {
   const [pageSize, setPageSize] = useState(25);
 
   // ======================================================================
-  // MSAL Token helper (used by apiFetch fallback)
-  // ======================================================================
-  const getAccessToken = async () => {
-    if (!instance || accounts.length === 0) return null;
-
-    try {
-      const account = accounts[0];
-      const tokenResp = await instance.acquireTokenSilent({
-        scopes: ["api://e5614425-4dbe-4f35-b725-64b9a2b92827/access_as_user"],
-        account,
-      });
-      return tokenResp.accessToken;
-    } catch {
-      return null;
-    }
-  };
-
-  // ======================================================================
-  // FETCH AUDIT LOG
+  // FETCH AUDIT LOG (Session-based)
   // ======================================================================
   const fetchLogs = async () => {
     setLoading(true);
     try {
-      // apiFetch will attach token automatically
       const data = await apiFetch(apiUrl("/users/audit/logs"));
       setLogs(Array.isArray(data.logs) ? data.logs : []);
     } catch (err) {
@@ -82,7 +60,6 @@ export default function UserAuditLog() {
     if (a === null) return -1;
     if (b === null) return 1;
 
-    // Date comparison
     const da = Date.parse(a);
     const db = Date.parse(b);
     if (!isNaN(da) && !isNaN(db)) return da - db;
@@ -166,6 +143,7 @@ export default function UserAuditLog() {
     // Pagination
     const total = list.length;
     const start = (page - 1) * pageSize;
+
     return {
       total,
       slice: list.slice(start, start + pageSize),
@@ -296,17 +274,13 @@ export default function UserAuditLog() {
                 <td className="px-3 py-2 border">{log.username || "-"}</td>
                 <td className="px-3 py-2 border">{log.email || "-"}</td>
                 <td className="px-3 py-2 border font-medium">{log.action}</td>
-
                 <td className="px-3 py-2 border text-xs whitespace-pre-wrap">
                   {JSON.stringify(log.old_values, null, 2)}
                 </td>
-
                 <td className="px-3 py-2 border text-xs whitespace-pre-wrap">
                   {JSON.stringify(log.new_values, null, 2)}
                 </td>
-
                 <td className="px-3 py-2 border">{log.changed_by}</td>
-
                 <td className="px-3 py-2 border">
                   {(() => {
                     const dt = getChangedAt(log);

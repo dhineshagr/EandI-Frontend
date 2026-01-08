@@ -2,22 +2,24 @@
 
 /**
  * ======================================================
- * Global API Configuration
+ * Global API Configuration (Okta SAML / Session-Based)
  * ======================================================
- * All backend endpoints and URLs are centralized here.
- * Environment variables control behavior for:
- *   - Local development
- *   - Azure App Service
- *   - CI/CD deployment
+ * Central place for backend URLs and external integrations.
  *
- * This ensures NO hardcoded URLs or scopes appear in components.
+ * ENV USAGE:
+ *  - Local:        http://localhost:3001
+ *  - UAT / Prod:   https://ssp-api.eandi.org (example)
+ *
+ * IMPORTANT:
+ *  - Auth handled via backend session (cookies)
+ *  - No tokens or scopes referenced here
  */
 
-// 🌐 Backend Base URL (from .env or fallback)
+// 🌐 Backend Base URL (NO /api here)
 export const API_BASE =
-  import.meta.env.VITE_API_BASE?.trim() || "http://localhost:3001/api";
+  import.meta.env.VITE_API_BASE_URL?.trim() || "http://localhost:3001";
 
-// 📦 Azure Blob SAS URL (optional)
+// 📦 Azure Blob SAS URL (unchanged)
 export const AZURE_BLOB_SAS_URL =
   import.meta.env.VITE_AZURE_BLOB_SAS_URL?.trim() || "";
 
@@ -29,29 +31,31 @@ export const PIPELINE_TRIGGER_URL =
  * ======================================================
  * Helper: Build Full API URL
  * ======================================================
- * Ensures all API calls use consistent prefix.
+ * Always prefixes with /api
  *
  * Usage:
  *   apiUrl("/reports/list")
- *   → "http://localhost:3001/api/reports/list"
+ *   → http://localhost:3001/api/reports/list
  */
 export function apiUrl(path) {
-  const clean = path.startsWith("/") ? path : `/${path}`;
-  return `${API_BASE}${clean}`;
+  const cleanPath = path.startsWith("/") ? path : `/${path}`;
+  return `${API_BASE}/api${cleanPath}`;
 }
 
 /**
  * ======================================================
- * Helper: Safe Fetch Wrapper
+ * Helper: Safe Fetch Wrapper (optional utility)
  * ======================================================
- * Automatically throws errors with readable messages.
- *
- * Usage:
- *   const data = await safeFetch(apiUrl("/reports/list"), { headers: {...} });
+ * NOTE:
+ * - apiClient.js is the primary fetch wrapper
+ * - This remains for utility or legacy usage
  */
 export async function safeFetch(url, options = {}) {
   try {
-    const response = await fetch(url, options);
+    const response = await fetch(url, {
+      ...options,
+      credentials: "include", // 🔑 session-based auth
+    });
 
     if (!response.ok) {
       const text = await response.text();
@@ -67,6 +71,6 @@ export async function safeFetch(url, options = {}) {
 }
 
 /**
- * Debug Log (only visible in browser console)
+ * Debug Log (visible in browser console)
  */
 console.log("✅ API_BASE =", API_BASE);

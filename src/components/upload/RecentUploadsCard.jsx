@@ -1,14 +1,15 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
+import { apiUrl } from "../../api/config";
 
 export default function RecentUploadsCard({ uploads }) {
-  const [sortField, setSortField] = useState("uploaded_at_utc");
+  const [sortField, setSortField] = useState("date");
   const [sortOrder, setSortOrder] = useState("desc");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(5);
 
-  const API_BASE = "http://localhost:3001/api"; // ✅ backend base URL
+  useEffect(() => setPage(1), [uploads]);
 
-  // ✅ Normalize backend keys to frontend-friendly fields
+  // Normalize backend fields (add downloadKey)
   const normalizedUploads = useMemo(
     () =>
       (uploads || []).map((u) => ({
@@ -16,33 +17,40 @@ export default function RecentUploadsCard({ uploads }) {
         uploadedByName:
           u.uploaded_by_name || u.uploadedByName || u.uploaded_by || "—",
         date: u.uploaded_at_utc || u.date || null,
+
+        // ✅ Use backend-provided download_key FIRST (report_number)
+        downloadKey:
+          u.download_key ||
+          u.upload_id ||
+          u.blob_name ||
+          u.storage_name ||
+          u.file_path ||
+          u.filename ||
+          u.name,
       })),
     [uploads]
   );
 
-  // ✅ Sorting logic
   const sortedUploads = useMemo(() => {
-    const sorted = [...normalizedUploads].sort((a, b) => {
+    return [...normalizedUploads].sort((a, b) => {
       let valA = a[sortField];
       let valB = b[sortField];
 
-      if (sortField === "uploaded_at_utc" || sortField === "date") {
-        valA = new Date(valA);
-        valB = new Date(valB);
+      if (sortField === "date") {
+        valA = valA ? new Date(valA).getTime() : 0;
+        valB = valB ? new Date(valB).getTime() : 0;
       } else {
-        valA = valA?.toString().toLowerCase();
-        valB = valB?.toString().toLowerCase();
+        valA = valA?.toString().toLowerCase() || "";
+        valB = valB?.toString().toLowerCase() || "";
       }
 
       if (valA < valB) return sortOrder === "asc" ? -1 : 1;
       if (valA > valB) return sortOrder === "asc" ? 1 : -1;
       return 0;
     });
-    return sorted;
   }, [normalizedUploads, sortField, sortOrder]);
 
-  // ✅ Pagination
-  const totalPages = Math.ceil(sortedUploads.length / pageSize);
+  const totalPages = Math.max(1, Math.ceil(sortedUploads.length / pageSize));
   const startIndex = (page - 1) * pageSize;
   const paginatedUploads = sortedUploads.slice(
     startIndex,
@@ -50,45 +58,47 @@ export default function RecentUploadsCard({ uploads }) {
   );
 
   const changeSort = (field) => {
-    if (sortField === field) {
-      setSortOrder(sortOrder === "asc" ? "desc" : "asc");
-    } else {
+    if (sortField === field)
+      setSortOrder((o) => (o === "asc" ? "desc" : "asc"));
+    else {
       setSortField(field);
       setSortOrder("asc");
     }
   };
 
-  // ✅ Secure backend download function
-  const handleDownload = async (filename) => {
+  // ✅ downloadKey supports either report_number (numeric) OR filename (string)
+  const handleDownload = async (downloadKey, displayName) => {
+    if (!downloadKey || downloadKey === "—") return;
+
     try {
-      const token = localStorage.getItem("authToken");
-      if (!token) {
-        alert("Unauthorized. Please login again.");
+      const isNumericId = String(downloadKey).match(/^\d+$/);
+
+      const url = isNumericId
+        ? apiUrl(`/uploads/download/${downloadKey}`)
+        : apiUrl(`/uploads/download/${encodeURIComponent(downloadKey)}`);
+
+      const response = await fetch(url, { credentials: "include" });
+
+      if (response.status === 404) {
+        alert(
+          "File not found in storage (404). The record exists but the file may have been moved/deleted."
+        );
         return;
       }
 
-      const response = await fetch(
-        `${API_BASE}/uploads/download/${encodeURIComponent(filename)}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error(`Download failed: ${response.status}`);
-      }
+      if (!response.ok) throw new Error(`Download failed: ${response.status}`);
 
       const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
+      const fileName = displayName || "download";
+      const blobUrl = window.URL.createObjectURL(blob);
+
       const link = document.createElement("a");
-      link.href = url;
-      link.download = filename;
+      link.href = blobUrl;
+      link.download = fileName;
       document.body.appendChild(link);
       link.click();
       link.remove();
-      window.URL.revokeObjectURL(url);
+      window.URL.revokeObjectURL(blobUrl);
     } catch (error) {
       console.error("❌ Download error:", error.message);
       alert("Failed to download file. Please try again.");
@@ -97,12 +107,10 @@ export default function RecentUploadsCard({ uploads }) {
 
   return (
     <div className="h-full flex flex-col rounded-2xl border bg-white/90 shadow-md">
-      {/* Header */}
       <div className="p-4 border-b bg-gradient-to-r from-slate-50 to-transparent rounded-t-2xl">
         <h3 className="font-bold text-lg text-emerald-700">Recent Uploads</h3>
       </div>
 
-      {/* Table */}
       <div className="flex-1 overflow-auto p-4">
         <table className="w-full text-sm border-collapse">
           <thead>
@@ -111,29 +119,25 @@ export default function RecentUploadsCard({ uploads }) {
                 className="border px-3 py-2 cursor-pointer hover:bg-slate-200"
                 onClick={() => changeSort("name")}
               >
-                File{" "}
-                {sortField === "name" ? (sortOrder === "asc" ? "▲" : "▼") : ""}
+                File {sortField === "name" && (sortOrder === "asc" ? "▲" : "▼")}
               </th>
               <th
                 className="border px-3 py-2 cursor-pointer hover:bg-slate-200"
                 onClick={() => changeSort("uploadedByName")}
               >
                 Uploaded By{" "}
-                {sortField === "uploadedByName"
-                  ? sortOrder === "asc"
-                    ? "▲"
-                    : "▼"
-                  : ""}
+                {sortField === "uploadedByName" &&
+                  (sortOrder === "asc" ? "▲" : "▼")}
               </th>
               <th
                 className="border px-3 py-2 cursor-pointer hover:bg-slate-200"
                 onClick={() => changeSort("date")}
               >
-                Date{" "}
-                {sortField === "date" ? (sortOrder === "asc" ? "▲" : "▼") : ""}
+                Date {sortField === "date" && (sortOrder === "asc" ? "▲" : "▼")}
               </th>
             </tr>
           </thead>
+
           <tbody>
             {paginatedUploads.length === 0 ? (
               <tr>
@@ -142,12 +146,13 @@ export default function RecentUploadsCard({ uploads }) {
                 </td>
               </tr>
             ) : (
-              paginatedUploads.map((u, i) => (
-                <tr key={i} className="hover:bg-slate-50">
+              paginatedUploads.map((u) => (
+                <tr key={`${u.name}-${u.date}`} className="hover:bg-slate-50">
                   <td className="border px-3 py-2">
                     <button
-                      onClick={() => handleDownload(u.name)}
+                      onClick={() => handleDownload(u.downloadKey, u.name)}
                       className="text-indigo-600 hover:underline text-left"
+                      title={`downloadKey: ${u.downloadKey}`}
                     >
                       {u.name}
                     </button>
@@ -163,11 +168,11 @@ export default function RecentUploadsCard({ uploads }) {
         </table>
       </div>
 
-      {/* Pagination controls */}
       <div className="px-4 py-3 border-t bg-slate-50 text-sm rounded-b-2xl flex items-center justify-between">
         <div>
-          Page {page} of {totalPages || 1}
+          Page {page} of {totalPages}
         </div>
+
         <div className="flex items-center gap-2">
           <button
             onClick={() => setPage((p) => Math.max(1, p - 1))}
@@ -178,12 +183,13 @@ export default function RecentUploadsCard({ uploads }) {
           </button>
           <button
             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            disabled={page === totalPages || totalPages === 0}
+            disabled={page === totalPages}
             className="px-3 py-1 border rounded disabled:opacity-50"
           >
             Next
           </button>
         </div>
+
         <select
           value={pageSize}
           onChange={(e) => {

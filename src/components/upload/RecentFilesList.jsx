@@ -4,8 +4,8 @@ import { Trash2, UploadCloud } from "lucide-react";
 
 /**
  * Props:
- * - items: array of uploaded files { id, name, blobUrl, uploadedBy, userType, bpCode, ... }
- * - currentUser: { type, username, bpCode }
+ * - items: array of uploaded files
+ * - currentUser: { username, bpCode, groups }
  * - onStartUpload
  * - onRemove
  * - disabled
@@ -19,15 +19,22 @@ export default function RecentFilesList({
   disabled,
   flash,
 }) {
-  // 🔎 Filter items based on user type
-  const visibleItems =
-    currentUser.type === "internal"
-      ? items // Internal → see all
-      : items.filter(
-          (it) =>
-            it.uploadedBy === currentUser.username ||
-            (currentUser.bpCode && it.bpCode === currentUser.bpCode)
-        );
+  const groups = Array.isArray(currentUser?.groups) ? currentUser.groups : [];
+
+  // 🔐 Internal user detection (Okta groups)
+  const isInternal =
+    groups.includes("SSP_Admins") ||
+    groups.includes("SSP_Test") ||
+    groups.includes("Internal");
+
+  // 🔎 Filter items based on user role
+  const visibleItems = isInternal
+    ? items // Internal → see all
+    : items.filter(
+        (it) =>
+          it.uploadedBy === currentUser?.username ||
+          (currentUser?.bpCode && it.bpCode === currentUser.bpCode)
+      );
 
   if (!visibleItems.length) {
     return (
@@ -49,10 +56,11 @@ export default function RecentFilesList({
           <div>
             <p className="font-medium text-slate-800">{item.name}</p>
             <p className="text-xs text-slate-500">
-              Uploaded by: {item.uploadedBy} ({item.userType})
+              Uploaded by: {item.uploadedBy}
               {item.bpCode && ` • BP Code: ${item.bpCode}`}
             </p>
           </div>
+
           <div className="flex gap-2">
             {item.status === "ready" && (
               <button
@@ -63,6 +71,7 @@ export default function RecentFilesList({
                 <UploadCloud className="h-4 w-4" /> Upload
               </button>
             )}
+
             <button
               onClick={() => onRemove(item.id)}
               className="inline-flex items-center gap-1 rounded bg-red-500 px-2 py-1 text-xs text-white hover:bg-red-600"

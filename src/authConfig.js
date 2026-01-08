@@ -1,48 +1,24 @@
 /**
  * ======================================================
- * MSAL Authentication Configuration
+ * Authentication Configuration (Okta SAML – Session Based)
  * ======================================================
- * - Reads all sensitive values from environment variables
- * - Centralizes API scopes
- * - Reused by apiClient.js and login components
+ * - NO MSAL
+ * - NO client-side tokens
+ * - Backend session (/api/me) is the source of truth
+ * - Frontend only needs API base URL
  */
 
-export const msalConfig = {
-  auth: {
-    clientId: import.meta.env.VITE_AZURE_CLIENT_ID,
-    authority: `https://login.microsoftonline.com/${import.meta.env.VITE_AZURE_TENANT_ID}`,
-    redirectUri: window.location.origin,
-    postLogoutRedirectUri: window.location.origin + "/login",
-  },
-  cache: {
-    cacheLocation: "localStorage",
-    storeAuthStateInCookie: false,
-  },
+// Optional: central place for auth-related constants
+export const AUTH_CONFIG = {
+  authType: "OKTA_SAML_SESSION",
+  sessionEndpoint: "/api/me",
+  loginPath: "/login",
+  logoutPath: "/logout",
 };
 
 /**
- * ======================================================
- * API SCOPES (Used globally)
- * ======================================================
- * Example:
- *   VITE_AZURE_API_SCOPE = api://xxxxxxx/access_as_user
+ * ⚠️ NOTE
+ * - Access tokens are NOT handled in frontend
+ * - Cookies are sent automatically via credentials: "include"
+ * - Authorization is enforced by backend
  */
-
-export const API_SCOPES = [
-  import.meta.env.VITE_AZURE_API_SCOPE   // Your backend API scope
-];
-
-/**
- * ======================================================
- * Login request definition for MSAL
- * ======================================================
- */
-
-export const loginRequest = {
-  scopes: [
-    ...API_SCOPES, // API permissions
-    "openid",
-    "profile",
-    "email",
-  ],
-};

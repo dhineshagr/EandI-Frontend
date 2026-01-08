@@ -1,6 +1,6 @@
 // src/pages/UploadDashboard.jsx
 // ======================================================================
-// Upload Dashboard (Updated + FIXED banner name for MSAL users)
+// Excel Upload Dashboard – FULL UPDATED WORKING VERSION (PRE-UI)
 // ======================================================================
 
 import React, { useCallback, useRef, useState, useEffect } from "react";
@@ -27,17 +27,18 @@ import { apiUrl } from "../api/config";
 function useToast() {
   return {
     toast: ({ title, description, variant }) => {
-      if (variant === "destructive") alert(`${title}\n${description || ""}`);
-      else console.log(`${title}${description ? " - " + description : ""}`);
+      if (variant === "destructive") {
+        alert(`${title}\n${description || ""}`);
+      } else {
+        console.log(`${title}${description ? " - " + description : ""}`);
+      }
     },
   };
 }
 
 const MAX_FILE_SIZE_MB = 50;
 const ACCEPT = [".xlsx", ".xls", ".csv"];
-
 const SAS_URL = import.meta.env.VITE_AZURE_BLOB_SAS_URL;
-const TRIGGER_URL = import.meta.env.VITE_PIPELINE_TRIGGER_URL;
 
 // Helpers
 function bytesToMB(bytes) {
@@ -94,12 +95,17 @@ function isEmptyRow(row) {
 // Validate business rules
 function validateBusinessRules(file, data, headers) {
   const errors = [];
+
   REQUIRED_FIELDS.forEach((f) => {
-    if (!headers.includes(f)) errors.push(`Missing required field: ${f}`);
+    if (!headers.includes(f)) {
+      errors.push(`Row 1: Missing required field: ${f}`);
+    }
   });
 
   data.forEach((row, idx) => {
     if (isEmptyRow(row)) return;
+
+    const rowNumber = idx + 2;
     const purchase = parseFloat(row["purchase_dollars"]) || 0;
     const caf = parseFloat(row["caf"]) || 0;
     const cafDollars = parseFloat(row["caf_dollars"]) || 0;
@@ -109,15 +115,13 @@ function validateBusinessRules(file, data, headers) {
 
     if (expected !== rounded) {
       errors.push(
-        `Row ${
-          idx + 2
-        }: CAF Dollars mismatch (expected ${expected}, got ${rounded})`
+        `Row ${rowNumber}: CAF Dollars mismatch (expected ${expected}, got ${rounded})`
       );
     }
 
     REQUIRED_FIELDS.forEach((f) => {
       if (!row[f] || row[f].toString().trim() === "") {
-        errors.push(`Row ${idx + 2}: Missing value for ${f}`);
+        errors.push(`Row ${rowNumber}: Missing value for ${f}`);
       }
     });
   });
@@ -132,7 +136,6 @@ export default function UploadDashboard() {
   const { toast } = useToast();
   const navigate = useNavigate();
 
-  // MSAL detection
   const { instance } = useMsal();
   const msalAccount = useAccount();
 
@@ -143,32 +146,40 @@ export default function UploadDashboard() {
 
   const isMsalUser = !!msalAccount;
 
-  // ----------- Compute Correct Display Name (FIXED) -------------
   const displayName = isMsalUser
-    ? msalAccount?.name || "Internal User"
-    : user?.fullName || user?.username || "User";
+    ? msalAccount?.name ||
+      user?.display_name ||
+      user?.username ||
+      "Internal User"
+    : user?.display_name || user?.username || user?.email || "User";
 
-  // Determine role
-  let roleFromClaims = undefined;
+  const userType = isMsalUser
+    ? "internal"
+    : user?.user_type?.toLowerCase() || "internal";
+
+  let roleFromClaims;
   if (msalAccount?.idTokenClaims) {
     const claims = msalAccount.idTokenClaims;
-    if (Array.isArray(claims.roles) && claims.roles.length > 0)
-      roleFromClaims = claims.roles[0];
-    else if (claims.role) roleFromClaims = claims.role;
+    roleFromClaims = claims?.roles?.[0] || claims?.role || undefined;
   }
 
-  const isBusinessPartner = !isMsalUser && user?.user_type === "bp";
+  const roleText =
+    userType === "bp"
+      ? "Business Partner"
+      : `Internal – ${roleFromClaims || user?.role || "Admin"}`;
 
-  const roleText = isBusinessPartner
-    ? "Business Partner"
-    : `Internal – ${roleFromClaims || user?.role || "Admin"}`;
+  const normalizedRole = String(
+    roleFromClaims || user?.role || ""
+  ).toLowerCase();
 
-  // -------------------------------------------------------------
+  const canViewValidationDetails =
+    userType === "internal" &&
+    ["admin", "accounting", "ssp_admins"].includes(normalizedRole);
 
-  // Fetch user profile (SQL)
+  // ✅ FIXED ENDPOINT
   const fetchUserProfile = async () => {
     try {
-      const data = await apiFetch(apiUrl("/auth/me"));
+      const data = await apiFetch(apiUrl("/me"));
       if (data?.user) {
         setUser(data.user);
         localStorage.setItem("userProfile", JSON.stringify(data.user));
@@ -179,7 +190,8 @@ export default function UploadDashboard() {
     }
   };
 
-  // Fetch recent uploads
+  const [recentUploads, setRecentUploads] = useState([]);
+
   const fetchRecentUploads = async () => {
     try {
       const data = await apiFetch(apiUrl("/uploads/recent"));
@@ -197,20 +209,16 @@ export default function UploadDashboard() {
     return () => clearInterval(interval);
   }, []);
 
-  // File state
   const [items, setItems] = useState([]);
   const [lastUploaded, setLastUploaded] = useState(null);
-  const [recentUploads, setRecentUploads] = useState([]);
   const [dragOver, setDragOver] = useState(false);
   const inputRef = useRef(null);
 
-  // Upload file → Azure
   async function uploadToAzure(file, user, onProgress) {
     if (!SAS_URL) throw new Error("Missing SAS URL");
 
     const container = new ContainerClient(SAS_URL);
-    const blobName = buildBlobPath(file);
-    const blobClient = container.getBlockBlobClient(blobName);
+    const blobClient = container.getBlockBlobClient(buildBlobPath(file));
 
     await blobClient.uploadData(file, {
       blobHTTPHeaders: {
@@ -218,136 +226,214 @@ export default function UploadDashboard() {
       },
       metadata: {
         uploadedBy: user.username || displayName,
-        userType: user.user_type || "internal",
+        userType,
         bpCode: user.bp_code || "N/A",
         uploadedAt: new Date().toISOString(),
         source: "excel-ui",
       },
-      onProgress: (ev) => {
-        const p = Math.round((ev.loadedBytes / file.size) * 100);
-        onProgress(p);
-      },
+      onProgress: (ev) =>
+        onProgress(Math.round((ev.loadedBytes / file.size) * 100)),
     });
 
     return blobClient.url;
   }
 
-  // On file drop/selection
+  // =======================================================
+  // FILE SELECTION HANDLER (FIX FOR BROWSE + DRAG/DROP)
+  // =======================================================
   const onFiles = useCallback(
     async (files) => {
-      if (!files?.length) return;
+      if (!files || files.length === 0) return;
 
       setItems([]);
       setLastUploaded(null);
 
-      const prepared = [];
+      const file = files[0];
 
-      for (const file of Array.from(files)) {
-        const sizeMB = bytesToMB(file.size);
-        const errors = [];
+      // =========================
+      // Extension validation
+      // =========================
+      const ext = file.name.toLowerCase().slice(file.name.lastIndexOf("."));
+      if (!ACCEPT.includes(ext)) {
+        toast({
+          title: "Invalid file type",
+          description: "Only Excel (.xlsx, .xls) or CSV files are allowed.",
+          variant: "destructive",
+        });
+        return;
+      }
 
-        if (sizeMB > MAX_FILE_SIZE_MB)
-          errors.push(`File exceeds ${MAX_FILE_SIZE_MB}MB limit`);
-        if (!ACCEPT.some((ext) => file.name.toLowerCase().endsWith(ext))) {
-          errors.push("File must be .xlsx/.xls/.csv");
-        }
+      // =========================
+      // Size validation
+      // =========================
+      if (bytesToMB(file.size) > MAX_FILE_SIZE_MB) {
+        toast({
+          title: "File too large",
+          description: `Max allowed size is ${MAX_FILE_SIZE_MB} MB.`,
+          variant: "destructive",
+        });
+        return;
+      }
 
+      const reader = new FileReader();
+
+      reader.onload = (e) => {
         try {
-          const buffer = await file.arrayBuffer();
-          const workbook = XLSX.read(buffer, { type: "array" });
+          const workbook = XLSX.read(e.target.result, { type: "array" });
           const sheet = workbook.Sheets[workbook.SheetNames[0]];
           const json = XLSX.utils.sheet_to_json(sheet, { defval: "" });
 
-          if (json.length > 0) {
-            const headers = Object.keys(json[0]).map((h) => h.trim());
-            errors.push(...validateBusinessRules(file, json, headers));
+          const headers = json.length
+            ? Object.keys(json[0]).map((h) => h.trim())
+            : [];
+
+          // =========================
+          // 🔥 RUN VALIDATION HERE
+          // =========================
+          const errors = validateBusinessRules(file, json, headers);
+
+          const previewRows = json
+            .slice(0, 5)
+            .map((row) => headers.map((h) => row[h]));
+
+          const validation = {
+            ok: errors.length === 0,
+            errors,
+            rowCount: json.length,
+          };
+
+          setItems([
+            {
+              id: Date.now(),
+              file,
+              name: file.name,
+              sizeMB: Math.round(bytesToMB(file.size) * 10) / 10,
+              status: validation.ok ? "ready" : "error",
+              progress: 0,
+              validation,
+              preview: {
+                headers,
+                rows: previewRows,
+              },
+              error: validation.ok ? null : "Validation failed",
+            },
+          ]);
+
+          // =========================
+          // 🚨 ALERT ON VALIDATION FAIL
+          // =========================
+          if (errors.length > 0 && canViewValidationDetails) {
+            toast({
+              title: "Validation failed",
+              description: `${errors.length} issue(s) found. Please review errors before uploading.`,
+              variant: "destructive",
+            });
           }
         } catch (err) {
-          errors.push(`Failed to parse Excel: ${err.message}`);
+          toast({
+            title: "File read error",
+            description: err.message,
+            variant: "destructive",
+          });
         }
+      };
 
-        prepared.push({
-          id:
-            crypto.randomUUID?.() ||
-            `${Date.now()}_${Math.random().toString(36).slice(2)}`,
-          file,
-          name: file.name,
-          sizeMB: Math.round(sizeMB * 10) / 10,
-          status: "ready",
-          progress: 0,
-          validation: { ok: errors.length === 0, errors },
-        });
-      }
+      reader.readAsArrayBuffer(file);
 
-      setItems(prepared);
+      // Reset input so same file can be selected again
       if (inputRef.current) inputRef.current.value = "";
     },
-    [user]
+    [toast]
   );
 
-  // Upload start
-  const startUpload = useCallback(
-    async (id, zeroSales = false) => {
-      if (!user) return;
+  // =======================================================
+  // START UPLOAD (AZURE + DB REGISTER)
+  // =======================================================
+  const startUpload = async (itemId, isZeroSales = false) => {
+    try {
+      const item = items.find((i) => i.id === itemId);
 
-      const item = items.find((x) => x.id === id);
-
-      try {
-        const url = zeroSales
-          ? await uploadToAzure(
-              new File([new Blob([`Zero Sales Report`])], "zero_sales.txt"),
-              user,
-              () => {}
-            )
-          : await uploadToAzure(item.file, user, (p) => {
-              setItems((prev) =>
-                prev.map((x) => (x.id === id ? { ...x, progress: p } : x))
-              );
-            });
-
+      if (!item && !isZeroSales) {
         toast({
-          title: "Upload successful",
-          description: zeroSales
-            ? `Zero Sales uploaded`
-            : `${item.name} uploaded`,
-        });
-
-        setLastUploaded({
-          name: zeroSales ? "Zero Sales" : item.name,
-          uploadedBy: displayName,
-          date: new Date().toISOString(),
-          url,
-        });
-
-        await apiFetch(apiUrl("/uploads/register"), {
-          method: "POST",
-          body: JSON.stringify({
-            filename: zeroSales ? "Zero Sales" : item.name,
-            report_type: zeroSales ? "ZeroSales" : "Sales",
-            note: "",
-          }),
-        });
-
-        fetchRecentUploads();
-      } catch (err) {
-        toast({
-          title: "Upload failed",
-          description: err.message,
+          title: "No file selected",
           variant: "destructive",
         });
+        return;
       }
-    },
-    [items, user]
-  );
+
+      let uploadedUrl = null;
+
+      // 1️⃣ Upload to Azure (always allow upload)
+      if (!isZeroSales) {
+        uploadedUrl = await uploadToAzure(item.file, user, () => {});
+      }
+
+      // 2️⃣ Register upload in DB
+      await apiFetch(apiUrl("/uploads/register"), {
+        method: "POST",
+        body: JSON.stringify({
+          filename: isZeroSales ? "ZERO_SALES" : item.name,
+          report_type: "Members",
+          note: isZeroSales ? "Zero Sales Declaration" : "",
+        }),
+      });
+
+      // 3️⃣ 🔔 SEND VALIDATION EMAIL (THIS WAS MISSING)
+      if (item?.validation?.errors?.length > 0) {
+        console.warn(
+          "Validation issues found - Upload will continue and email will be sent"
+        );
+
+        await apiFetch(apiUrl("/notify-accounting"), {
+          method: "POST",
+          body: JSON.stringify({
+            fileName: item.name,
+            uploadedBy: displayName,
+            errors: item.validation.errors,
+          }),
+        });
+      }
+
+      // 4️⃣ Refresh recent uploads
+      await fetchRecentUploads();
+
+      // 5️⃣ Success UI
+      setLastUploaded({
+        name: isZeroSales ? "Zero Sales Declaration" : item.name,
+        url: uploadedUrl,
+      });
+
+      setItems([]);
+
+      toast({
+        title:
+          item?.validation?.errors?.length > 0
+            ? "Upload completed with validation issues"
+            : "Upload successful",
+        description:
+          item?.validation?.errors?.length > 0
+            ? "File uploaded. Error details have been emailed."
+            : undefined,
+      });
+    } catch (err) {
+      console.error("❌ Upload failed:", err);
+
+      toast({
+        title: "Upload failed",
+        description: err.message,
+        variant: "destructive",
+      });
+    }
+  };
 
   const disabled = !SAS_URL;
 
   // ======================================================================
-  // UI (BANNER FIX APPLIED)
+  // UI
   // ======================================================================
   return (
     <div className="min-h-[100vh] bg-gradient-to-br from-emerald-50 via-sky-50 to-indigo-50">
-      {/* HEADER BANNER */}
+      {/* HEADER */}
       <div className="bg-gradient-to-r from-indigo-600 to-emerald-600 text-white px-6 py-6">
         <h1 className="text-2xl font-bold">Excel Upload Dashboard</h1>
 
@@ -361,7 +447,7 @@ export default function UploadDashboard() {
         <div className="grid grid-cols-1 xl:grid-cols-[2fr_1.6fr] gap-6">
           {/* LEFT SIDE */}
           <div className="space-y-6">
-            {/* Upload card */}
+            {/* Upload Card */}
             <div className="rounded-2xl border backdrop-blur bg-white/80 shadow-md">
               <div className="p-5 border-b bg-gradient-to-r from-slate-50 to-transparent">
                 <h2 className="font-bold text-lg tracking-tight text-emerald-700 flex items-center gap-2">
@@ -427,8 +513,8 @@ export default function UploadDashboard() {
               </div>
             </div>
 
-            {/* Zero Sales button */}
-            {!isMsalUser && user?.user_type === "bp" && (
+            {/* Zero Sales Button */}
+            {userType === "bp" && (
               <button
                 onClick={() => startUpload(null, true)}
                 className="inline-flex items-center gap-2 rounded-xl bg-amber-500 text-white hover:bg-amber-600 px-4 py-2 font-semibold shadow"
@@ -437,7 +523,7 @@ export default function UploadDashboard() {
               </button>
             )}
 
-            {/* Last upload */}
+            {/* Last Upload */}
             {lastUploaded && (
               <div className="rounded-2xl border border-emerald-300 bg-emerald-50 text-emerald-800 shadow p-4 flex items-center justify-between">
                 <div>
@@ -461,7 +547,9 @@ export default function UploadDashboard() {
                 item={items[0]}
                 onUpload={() => startUpload(items[0].id)}
                 disabled={disabled}
-                userType={user?.user_type}
+                userType={userType}
+                canViewValidationDetails={canViewValidationDetails}
+                userGroups={user?.groups || user?.roles || []}
               />
             )}
           </div>

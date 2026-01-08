@@ -16,9 +16,22 @@ export default function SecurityCard() {
       </div>
 
       <div className="p-5 text-sm text-slate-600 space-y-2">
-        <p>• Sign-in via <strong>Azure Entra ID</strong> (already integrated in your app).</p>
-        <p>• Uploads use a <strong>container SAS URL</strong> set in env vars (no keys in code).</p>
-        <p>• Files are stored under <code>members/YYYY/MM/DD</code> with timestamped names.</p>
+        <p>
+          • Sign-in via <strong>Okta SAML Single Sign-On</strong> with
+          server-side session management.
+        </p>
+        <p>
+          • No authentication tokens are stored in the browser; access is
+          enforced using secure HTTP-only sessions.
+        </p>
+        <p>
+          • Uploads use a <strong>container SAS URL</strong> configured via
+          environment variables (no storage keys in code).
+        </p>
+        <p>
+          • Files are stored under <code>members/YYYY/MM/DD</code> with
+          timestamped names for traceability.
+        </p>
       </div>
     </div>
   );

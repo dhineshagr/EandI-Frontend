@@ -1,67 +1,54 @@
 // src/components/Header.jsx
 import React, { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { useAccount, useMsal } from "@azure/msal-react";
 
 import logo1x from "../images/EI_Logo_Standard_2020.png";
 import logo2x from "../images/EI_Logo_Standard_2020@2x.png";
+import { apiGet } from "../api/apiClient";
 
 export default function Header() {
-  const { instance } = useMsal();
-  const account = useAccount();
   const location = useLocation();
+  const [user, setUser] = useState(null);
 
-  // External (SQL) user profile from localStorage
-  const [extUser, setExtUser] = useState(() => {
-    const saved = localStorage.getItem("userProfile");
-    return saved ? JSON.parse(saved) : null;
-  });
-
-  // Keep in sync if localStorage changes (e.g., login/logout)
+  // Fetch logged-in user from backend session
   useEffect(() => {
-    const handleStorage = () => {
-      const saved = localStorage.getItem("userProfile");
-      setExtUser(saved ? JSON.parse(saved) : null);
+    const loadUser = async () => {
+      try {
+        const res = await apiGet("/me");
+        setUser(res.user); // 👈 IMPORTANT: use res.user
+      } catch {
+        setUser(null);
+      }
     };
-    window.addEventListener("storage", handleStorage);
-    return () => window.removeEventListener("storage", handleStorage);
+    loadUser();
   }, []);
 
-  const isMsalUser = !!account;
+  // Hide header if not authenticated
+  if (!user) return null;
 
-  // ----- Role detection -----
-  let roleFromClaims = undefined;
-  if (account?.idTokenClaims) {
-    const claims = account.idTokenClaims;
-    if (Array.isArray(claims.roles) && claims.roles.length > 0) {
-      roleFromClaims = claims.roles[0];
-    } else if (claims.role) {
-      roleFromClaims = claims.role;
-    }
-  }
-
-  const isBusinessPartner =
-    (!isMsalUser && extUser?.user_type === "bp") ||
-    (isMsalUser &&
-      ["BP", "BusinessPartner", "Business Partner"].includes(
-        roleFromClaims || ""
-      ));
-
-  const displayName = isMsalUser
-    ? account?.name || "Internal User"
-    : extUser?.fullName || extUser?.username || "User";
+  // --------------------------------------------------
+  // ✅ USER TYPE / ROLE
+  // --------------------------------------------------
+  const isBusinessPartner = user.user_type === "bp";
 
   const roleBadge = isBusinessPartner
     ? "Business Partner"
-    : roleFromClaims || extUser?.role || "Admin";
+    : user.role || "Internal";
 
-  // ----- Nav active styling -----
+  // --------------------------------------------------
+  // ✅ DISPLAY NAME (THIS FIXES YOUR ISSUE)
+  // --------------------------------------------------
+  const displayName =
+    user.display_name || user.username || user.email || "User";
+
+  // --------------------------------------------------
+  // Nav active styling
+  // --------------------------------------------------
   const isActive = (p) =>
     location.pathname === p || location.pathname.startsWith(p + "/")
       ? "text-white font-semibold border-b-2 border-white pb-1"
       : "text-white/80 hover:text-white";
 
-  // Use central logout route (handles both MSAL + SQL)
   const handleLogout = () => {
     window.location.href = "/logout";
   };
@@ -96,14 +83,14 @@ export default function Header() {
                 Template
               </Link>
 
-              {/* 🔒 Only show admin menus for internal users */}
+              {/* 🔒 Internal-only menus */}
               {!isBusinessPartner && (
                 <>
                   <Link to="/reports" className={isActive("/reports")}>
                     Reports
                   </Link>
                   <Link to="/ManageUsers" className={isActive("/ManageUsers")}>
-                    ManageUsers
+                    Manage Users
                   </Link>
                   <Link
                     to="/UserAuditLog"

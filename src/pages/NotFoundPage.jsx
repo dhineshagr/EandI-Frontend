@@ -3,12 +3,10 @@ import { Link } from "react-router-dom";
 import Header from "../components/Header";
 
 const NotFoundPage = () => {
-  // Show header ONLY if token exists
-  const hasSession = !!localStorage.getItem("authToken");
-
   return (
     <>
-      {hasSession && <Header />}
+      {/* Header will render only if session exists */}
+      <Header />
 
       <div className="min-h-screen bg-gray-100 flex flex-col items-center justify-center text-center p-6">
         <h1 className="text-4xl text-red-700 font-bold mb-4">
