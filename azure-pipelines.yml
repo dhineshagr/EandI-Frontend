@@ -5,24 +5,34 @@ pool:
   vmImage: ubuntu-latest
 
 variables:
-  # ✅ 1) Variable Group (created this in Library)
+  # ✅ 1) Variable Group (created in Library)
 - group: eni-ssp-frontend-dev
 
-  # ✅ 2) Azure DevOps Service Connection name (create in Project Settings → Service connections)
-  # Example: EANDI-SSP-DEV-RG
+  # ✅ 2) Azure DevOps Service Connection name (Project Settings → Service connections)
 - name: azureSubscription
   value: 'EANDI-SSP-DEV-RG'
 
   # ✅ 3) Azure App Service name (frontend)
-  # Example: eni-ssp-frontend-dev
 - name: webAppName
   value: 'eni-ssp-frontend-dev'
 
-  # ✅ 4) Node version (selected Node 24 LTS in Azure)
+  # ✅ 4) Node version (keep 24 LTS as per your decision)
 - name: nodeVersion
   value: '24.x'
 
 steps:
+# 0) Confirm target App Service + repo context
+- script: |
+    echo "Deploying to App Service: $(webAppName)"
+    echo "Azure Subscription Service Connection: $(azureSubscription)"
+    echo "Agent OS:"
+    uname -a
+    echo "Workspace:"
+    pwd
+    echo "Repo root files:"
+    ls -la
+  displayName: 'Pre-check: environment + target'
+
 # 1) Install Node
 - task: NodeTool@0
   inputs:
@@ -31,9 +41,14 @@ steps:
 
 # 2) Install deps + build (Vite reads VITE_* HERE at build time)
 - script: |
+    set -e
     node -v
     npm -v
+
+    echo "=== npm ci ==="
     npm ci
+
+    echo "=== npm run build ==="
     npm run build
   displayName: 'Install packages and build Vite app'
   env:
@@ -43,26 +58,56 @@ steps:
     VITE_SAML_LOGOUT_URL: $(VITE_SAML_LOGOUT_URL)
     VITE_TEMPLATE_BASE_URL: $(VITE_TEMPLATE_BASE_URL)
 
-# 3) SPA routing config
-# ✅ For LINUX App Service: use a simple startup command (no web.config needed)
-# ✅ For WINDOWS App Service: web.config is required for refresh routes
-# frontend app is Linux, so we SKIP web.config (safe to keep disabled).
+# 3) Verify Vite dist output (CRITICAL: proves build is real, not placeholder)
 - script: |
-    echo "Linux App Service detected/expected. Skipping web.config."
-  displayName: 'SPA routing note (Linux)'
-  condition: succeeded()
+    set -e
+    echo "=== Verify dist output ==="
+    echo "PWD: $(pwd)"
+    echo "--- dist listing ---"
+    ls -la dist || true
 
-# 4) Zip dist folder (App Service deploy expects zip)
+    echo "--- dist/assets listing ---"
+    ls -la dist/assets || true
+
+    echo "--- dist/index.html size (bytes) ---"
+    wc -c dist/index.html || true
+
+    echo "--- First 30 lines of dist/index.html ---"
+    head -n 30 dist/index.html || true
+
+    echo "--- Find largest files in dist (top 20) ---"
+    find dist -type f -printf "%s %p\n" 2>/dev/null | sort -nr | head -n 20 || true
+  displayName: 'Verify dist content (size + assets)'
+
+# 4) SPA routing note (Linux)
+- script: |
+    echo "Linux App Service expected. No web.config. Ensure SPA fallback is handled (e.g., staticwebapp.config.json if needed)."
+  displayName: 'SPA routing note (Linux)'
+
+# 5) Zip dist folder (use absolute path to avoid zipping wrong/empty folder)
 - task: ArchiveFiles@2
   inputs:
-    rootFolderOrFile: 'dist'
+    rootFolderOrFile: '$(System.DefaultWorkingDirectory)/dist'
     includeRootFolder: false
     archiveType: 'zip'
     archiveFile: '$(Build.ArtifactStagingDirectory)/frontend.zip'
     replaceExistingArchive: true
   displayName: 'Zip dist folder'
 
-# 5) Publish artifact (optional but useful)
+# 6) Verify zip contents (CRITICAL: confirms index.html + assets are inside zip root)
+- script: |
+    set -e
+    echo "=== Verify zip contents (first 200 lines) ==="
+    unzip -l "$(Build.ArtifactStagingDirectory)/frontend.zip" | head -n 200
+
+    echo "=== Check index.html exists at zip root ==="
+    unzip -l "$(Build.ArtifactStagingDirectory)/frontend.zip" | grep -E " index\.html$" || (echo "ERROR: index.html NOT FOUND at zip root" && exit 1)
+
+    echo "=== Check assets folder has files ==="
+    unzip -l "$(Build.ArtifactStagingDirectory)/frontend.zip" | grep -E "^.* assets/.*\.(js|css|map)$" | head -n 20 || echo "WARN: No JS/CSS assets matched (verify build output)"
+  displayName: 'Verify frontend.zip content'
+
+# 7) Publish artifact (optional but useful)
 - task: PublishBuildArtifacts@1
   inputs:
     PathtoPublish: '$(Build.ArtifactStagingDirectory)/frontend.zip'
@@ -70,10 +115,11 @@ steps:
     publishLocation: 'Container'
   displayName: 'Publish build artifact'
 
-# 6) Deploy zip to Azure App Service (frontend)
+# 8) Deploy zip to Azure App Service (frontend) - force zipDeploy
 - task: AzureWebApp@1
   inputs:
     azureSubscription: '$(azureSubscription)'
     appName: '$(webAppName)'
     package: '$(Build.ArtifactStagingDirectory)/frontend.zip'
-  displayName: 'Deploy frontend to Azure App Service'
+    deploymentMethod: 'zipDeploy'
+  displayName: 'Deploy frontend to Azure App Service (zipDeploy)'
