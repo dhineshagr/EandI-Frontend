@@ -4,44 +4,76 @@ trigger:
 pool:
   vmImage: ubuntu-latest
 
+variables:
+  # ✅ 1) Variable Group (created this in Library)
+- group: eni-ssp-frontend-dev
+
+  # ✅ 2) Azure DevOps Service Connection name (create in Project Settings → Service connections)
+  # Example: EANDI-SSP-DEV-RG
+- name: azureSubscription
+  value: 'EANDI-SSP-DEV-RG'
+
+  # ✅ 3) Azure App Service name (frontend)
+  # Example: eni-ssp-frontend-dev
+- name: webAppName
+  value: 'eni-ssp-frontend-dev'
+
+  # ✅ 4) Node version (selected Node 24 LTS in Azure)
+- name: nodeVersion
+  value: '24.x'
+
 steps:
-# Install Node.js 20
+# 1) Install Node
 - task: NodeTool@0
   inputs:
-    versionSpec: '20.x'
-  displayName: 'Install Node.js'
+    versionSpec: '$(nodeVersion)'
+  displayName: 'Install Node.js $(nodeVersion)'
 
-# Install dependencies + build Vite app (FIXED)
+# 2) Install deps + build (Vite reads VITE_* HERE at build time)
 - script: |
-    set -e
-
     node -v
     npm -v
-
-    # Clean, reproducible install (recommended in CI)
     npm ci
-
-    echo "---- vite binary status ----"
-    ls -la node_modules/.bin/vite || true
-
-    # Fix permission if needed
-    chmod +x node_modules/.bin/vite || true
-
-    # Build using npx (avoids direct .bin execution issues)
-    npx vite build
+    npm run build
   displayName: 'Install packages and build Vite app'
+  env:
+    VITE_API_BASE_URL: $(VITE_API_BASE_URL)
+    VITE_AZURE_BLOB_SAS_URL: $(VITE_AZURE_BLOB_SAS_URL)
+    VITE_SAML_LOGIN_URL: $(VITE_SAML_LOGIN_URL)
+    VITE_SAML_LOGOUT_URL: $(VITE_SAML_LOGOUT_URL)
+    VITE_TEMPLATE_BASE_URL: $(VITE_TEMPLATE_BASE_URL)
 
-# Copy build output to artifact staging
-- task: CopyFiles@2
+# 3) SPA routing config
+# ✅ For LINUX App Service: use a simple startup command (no web.config needed)
+# ✅ For WINDOWS App Service: web.config is required for refresh routes
+# frontend app is Linux, so we SKIP web.config (safe to keep disabled).
+- script: |
+    echo "Linux App Service detected/expected. Skipping web.config."
+  displayName: 'SPA routing note (Linux)'
+  condition: succeeded()
+
+# 4) Zip dist folder (App Service deploy expects zip)
+- task: ArchiveFiles@2
   inputs:
-    contents: 'dist/**'
-    targetFolder: '$(Build.ArtifactStagingDirectory)/dist'
-  displayName: 'Copy build output'
+    rootFolderOrFile: 'dist'
+    includeRootFolder: false
+    archiveType: 'zip'
+    archiveFile: '$(Build.ArtifactStagingDirectory)/frontend.zip'
+    replaceExistingArchive: true
+  displayName: 'Zip dist folder'
 
-# Publish artifact so Release pipeline can deploy it
+# 5) Publish artifact (optional but useful)
 - task: PublishBuildArtifacts@1
   inputs:
-    PathtoPublish: '$(Build.ArtifactStagingDirectory)/dist'
+    PathtoPublish: '$(Build.ArtifactStagingDirectory)/frontend.zip'
     ArtifactName: 'frontend'
     publishLocation: 'Container'
-  displayName: 'Publish build artifacts'
+  displayName: 'Publish build artifact'
+
+# 6) Deploy zip to Azure App Service (frontend)
+- task: AzureWebApp@1
+  inputs:
+    azureSubscription: '$(azureSubscription)'
+    appName: '$(webAppName)'
+    package: '$(Build.ArtifactStagingDirectory)/frontend.zip'
+  displayName: 'Deploy frontend to Azure App Service'
