@@ -1,13 +1,5 @@
 // src/pages/ReportsDashboard.jsx
-// ======================================================================
-// Reports Dashboard (Okta SAML + Session-Based Auth)
-// ----------------------------------------------------------------------
-// ✔ No MSAL
-// ✔ No frontend token handling
-// ✔ Uses apiFetch() with session cookies
-// ✔ No hardcoded API URLs
-// ✔ All existing functionality preserved
-// ======================================================================
+// ✅ Add Passed + Pending handling (do NOT remove other logic)
 
 import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
@@ -204,29 +196,58 @@ export default function ReportsDashboard() {
                   {rep.filename}
                 </td>
 
-                <td className="px-3 py-2 border">{rep.uploaded_by}</td>
+                <td className="px-3 py-2 border">
+                  {rep.uploaded_by_display ||
+                    rep.uploaded_by_name ||
+                    rep.uploaded_by ||
+                    "-"}
+                </td>
 
+                {/* ✅ Status (added passed + pending, kept everything else) */}
                 <td className="px-3 py-2 border">
                   {rep.status === "approved" && (
                     <span className="flex items-center gap-1 text-emerald-600">
                       <CheckCircle className="h-4 w-4" /> Approved
                     </span>
                   )}
+
                   {rep.status === "failed" && (
                     <span className="flex items-center gap-1 text-red-600">
                       <XCircle className="h-4 w-4" /> Failed
                     </span>
                   )}
+
+                  {/* ✅ NEW: Passed */}
+                  {rep.status === "passed" && (
+                    <span className="flex items-center gap-1 text-blue-600">
+                      <CheckCircle className="h-4 w-4" /> Passed
+                    </span>
+                  )}
+                  
+                  {rep.status === "submitted" && (
+                    <span className="flex items-center gap-1 text-sky-600">
+                      <CheckCircle className="h-4 w-4" /> Submitted
+                    </span>
+                  )}
+
                   {rep.status === "validated" && (
                     <span className="flex items-center gap-1 text-amber-600">
                       <AlertTriangle className="h-4 w-4" /> Validated
                     </span>
                   )}
+
                   {["new", "staged"].includes(rep.status) && (
                     <span className="text-slate-600 capitalize">
                       {rep.status}
                     </span>
                   )}
+
+                  {/* ✅ NEW: Pending (because backend returns 'pending' string) */}
+                  {rep.status === "pending" && (
+                    <span className="text-slate-500">Pending</span>
+                  )}
+
+                  {/* Existing fallback */}
                   {!rep.status && (
                     <span className="text-slate-500">Pending</span>
                   )}
