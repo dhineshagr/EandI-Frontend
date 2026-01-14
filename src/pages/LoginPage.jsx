@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 
 import Logo from "../images/EI_Logo_Standard_2020.png";
 import { apiGet, apiPost } from "../api/apiClient";
+import { apiUrl } from "../api/config"; // ✅ use env-driven base url
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -11,7 +12,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [checkingSession, setCheckingSession] = useState(true);
 
-  // ✅ NEW: SQL login fields
+  // ✅ SQL login fields
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
 
@@ -22,13 +23,16 @@ export default function LoginPage() {
     let mounted = true;
 
     (async () => {
-      const result = await apiGet("/me");
-
-      if (result && mounted) {
-        navigate("/upload", { replace: true });
+      try {
+        const result = await apiGet("/me");
+        if (result && mounted) {
+          navigate("/upload", { replace: true });
+        }
+      } catch {
+        // ignore (not logged in)
+      } finally {
+        if (mounted) setCheckingSession(false);
       }
-
-      if (mounted) setCheckingSession(false);
     })();
 
     return () => {
@@ -40,21 +44,22 @@ export default function LoginPage() {
      Okta SAML Login (Internal Users)
   ========================================= */
   const handleSamlLogin = () => {
-    window.location.href = "http://localhost:3001/api/auth/saml/login";
+    // ✅ Redirect to backend SAML login using env-configured API base
+    window.location.assign(apiUrl("/auth/saml/login"));
   };
 
+  /* =========================================
+     SQL Login (BP Users)
+  ========================================= */
   const handleSqlLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError("");
 
     try {
-      await apiPost("/auth/sql/login", {
-        username,
-        password,
-      });
+      await apiPost("/auth/sql/login", { username, password });
       navigate("/upload");
-    } catch (err) {
+    } catch {
       setError("Invalid username or password");
     } finally {
       setLoading(false);
@@ -78,9 +83,7 @@ export default function LoginPage() {
 
         <h1 className="text-2xl font-bold text-center">Sign in</h1>
 
-        {/* =======================
-            OKTA LOGIN
-        ======================== */}
+        {/* OKTA LOGIN */}
         <div className="mt-6">
           <button
             onClick={handleSamlLogin}
@@ -96,9 +99,7 @@ export default function LoginPage() {
           <div className="flex-grow border-t" />
         </div>
 
-        {/* =======================
-            SQL LOGIN (BP USERS)
-        ======================== */}
+        {/* SQL LOGIN */}
         <form onSubmit={handleSqlLogin} className="space-y-4">
           <input
             value={username}
