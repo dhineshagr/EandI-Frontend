@@ -16,31 +16,26 @@
  */
 
 // 🌐 Backend Base URL (NO /api here)
-export const API_BASE =
-  import.meta.env.VITE_API_BASE_URL?.trim() || "http://localhost:3001";
+export const API_BASE = (import.meta.env.VITE_API_BASE_URL || "")
+  .trim()
+  .replace(/\/+$/, "");
 
-// 📦 Azure Blob SAS URL (unchanged)
+if (!API_BASE) {
+  throw new Error("Missing VITE_API_BASE_URL (frontend env var)");
+}
+
 export const AZURE_BLOB_SAS_URL =
   import.meta.env.VITE_AZURE_BLOB_SAS_URL?.trim() || "";
 
-// 🚀 External pipeline trigger URL (optional)
 export const PIPELINE_TRIGGER_URL =
   import.meta.env.VITE_PIPELINE_TRIGGER_URL?.trim() || "";
 
-/**
- * ======================================================
- * Helper: Build Full API URL
- * ======================================================
- * Always prefixes with /api
- *
- * Usage:
- *   apiUrl("/reports/list")
- *   → http://localhost:3001/api/reports/list
- */
 export function apiUrl(path) {
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
   return `${API_BASE}/api${cleanPath}`;
 }
+
+console.log("✅ API_BASE =", API_BASE);
 
 /**
  * ======================================================
