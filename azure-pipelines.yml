@@ -8,7 +8,7 @@ variables:
   # ✅ 1) Variable Group (created in Library)
 - group: eni-ssp-frontend-dev
 
-  # ✅ 2) Azure DevOps Service Connection name (Project Settings → Service connections)
+  # ✅ 2) Azure DevOps Service Connection name
 - name: azureSubscription
   value: 'EANDI-SSP-DEV-RG'
 
@@ -16,9 +16,9 @@ variables:
 - name: webAppName
   value: 'eni-ssp-frontend-dev'
 
-  # ✅ 4) Node version (keep 24 LTS as per your decision)
+  # ✅ 4) Node version (match Azure runtime: Node 22 LTS)
 - name: nodeVersion
-  value: '24.x'
+  value: '22.x'
 
 steps:
 # 0) Confirm target App Service + repo context
@@ -39,7 +39,7 @@ steps:
     versionSpec: '$(nodeVersion)'
   displayName: 'Install Node.js $(nodeVersion)'
 
-# 2) Install deps + build (Vite reads VITE_* HERE at build time)
+# 2) Install deps + build (Vite reads VITE_* at build time)
 - script: |
     set -e
     node -v
@@ -58,22 +58,23 @@ steps:
     VITE_SAML_LOGOUT_URL: $(VITE_SAML_LOGOUT_URL)
     VITE_TEMPLATE_BASE_URL: $(VITE_TEMPLATE_BASE_URL)
 
-# 3) Verify Vite dist output (CRITICAL: proves build is real, not placeholder)
+# 3) Verify Vite dist output
 - script: |
     set -e
     echo "=== Verify dist output ==="
     echo "PWD: $(pwd)"
+
     echo "--- dist listing ---"
-    ls -la dist || true
+    ls -la dist
 
     echo "--- dist/assets listing ---"
     ls -la dist/assets || true
 
     echo "--- dist/index.html size (bytes) ---"
-    wc -c dist/index.html || true
+    wc -c dist/index.html
 
     echo "--- First 30 lines of dist/index.html ---"
-    head -n 30 dist/index.html || true
+    head -n 30 dist/index.html
 
     echo "--- Find largest files in dist (top 20) ---"
     find dist -type f -printf "%s %p\n" 2>/dev/null | sort -nr | head -n 20 || true
@@ -81,10 +82,12 @@ steps:
 
 # 4) SPA routing note (Linux)
 - script: |
-    echo "Linux App Service expected. No web.config. Ensure SPA fallback is handled (e.g., staticwebapp.config.json if needed)."
+    echo "Linux App Service expected. No web.config."
+    echo "Ensure SPA fallback is handled (Vite + App Service)."
+    echo "If refresh on routes fails, add a staticwebapp.config.json (or custom startup) to rewrite all routes to /index.html."
   displayName: 'SPA routing note (Linux)'
 
-# 5) Zip dist folder (use absolute path to avoid zipping wrong/empty folder)
+# 5) Zip dist folder
 - task: ArchiveFiles@2
   inputs:
     rootFolderOrFile: '$(System.DefaultWorkingDirectory)/dist'
@@ -94,7 +97,7 @@ steps:
     replaceExistingArchive: true
   displayName: 'Zip dist folder'
 
-# 6) Verify zip contents (CRITICAL: confirms index.html + assets are inside zip root)
+# 6) Verify zip contents
 - script: |
     set -e
     echo "=== Verify zip contents (first 200 lines) ==="
@@ -115,7 +118,7 @@ steps:
     publishLocation: 'Container'
   displayName: 'Publish build artifact'
 
-# 8) Deploy zip to Azure App Service (frontend) - force zipDeploy
+# 8) Deploy zip to Azure App Service (frontend)
 - task: AzureWebApp@1
   inputs:
     azureSubscription: '$(azureSubscription)'
