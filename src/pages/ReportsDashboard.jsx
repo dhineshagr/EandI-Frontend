@@ -1,5 +1,7 @@
 // src/pages/ReportsDashboard.jsx
 // ✅ Add Passed + Pending handling (do NOT remove other logic)
+// ✅ Disable “View Details” button for processing reports (pending/new/staged/submitted)
+// ✅ Normalize status once per row to avoid case issues
 
 import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
@@ -186,93 +188,122 @@ export default function ReportsDashboard() {
           </thead>
 
           <tbody>
-            {processed.slice.map((rep) => (
-              <tr key={rep.report_number} className="hover:bg-slate-50">
-                <td className="px-3 py-2 border">{rep.report_number}</td>
-                <td className="px-3 py-2 border">{rep.report_type}</td>
+            {processed.slice.map((rep) => {
+              // ✅ Normalize status once per row (prevents casing mismatches)
+              const status = String(rep.status || "").toLowerCase();
 
-                <td className="px-3 py-2 border flex items-center gap-2">
-                  <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
-                  {rep.filename}
-                </td>
+              // ✅ Treat these as "still processing"
+              const isProcessing = [
+                "pending",
+                "new",
+                "staged",
+                "submitted",
+              ].includes(status);
 
-                <td className="px-3 py-2 border">
-                  {rep.uploaded_by_display ||
-                    rep.uploaded_by_name ||
-                    rep.uploaded_by ||
-                    "-"}
-                </td>
+              return (
+                <tr key={rep.report_number} className="hover:bg-slate-50">
+                  <td className="px-3 py-2 border">{rep.report_number}</td>
+                  <td className="px-3 py-2 border">{rep.report_type}</td>
 
-                {/* ✅ Status (added passed + pending, kept everything else) */}
-                <td className="px-3 py-2 border">
-                  {rep.status === "approved" && (
-                    <span className="flex items-center gap-1 text-emerald-600">
-                      <CheckCircle className="h-4 w-4" /> Approved
-                    </span>
-                  )}
+                  <td className="px-3 py-2 border flex items-center gap-2">
+                    <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
+                    {rep.filename}
+                  </td>
 
-                  {rep.status === "failed" && (
-                    <span className="flex items-center gap-1 text-red-600">
-                      <XCircle className="h-4 w-4" /> Failed
-                    </span>
-                  )}
+                  <td className="px-3 py-2 border">
+                    {rep.uploaded_by_display ||
+                      rep.uploaded_by_name ||
+                      rep.uploaded_by ||
+                      "-"}
+                  </td>
 
-                  {/* ✅ NEW: Passed */}
-                  {rep.status === "passed" && (
-                    <span className="flex items-center gap-1 text-blue-600">
-                      <CheckCircle className="h-4 w-4" /> Passed
-                    </span>
-                  )}
-                  
-                  {rep.status === "submitted" && (
-                    <span className="flex items-center gap-1 text-sky-600">
-                      <CheckCircle className="h-4 w-4" /> Submitted
-                    </span>
-                  )}
+                  {/* ✅ Status (added passed + pending, kept everything else) */}
+                  <td className="px-3 py-2 border">
+                    {status === "approved" && (
+                      <span className="flex items-center gap-1 text-emerald-600">
+                        <CheckCircle className="h-4 w-4" /> Approved
+                      </span>
+                    )}
 
-                  {rep.status === "validated" && (
-                    <span className="flex items-center gap-1 text-amber-600">
-                      <AlertTriangle className="h-4 w-4" /> Validated
-                    </span>
-                  )}
+                    {status === "failed" && (
+                      <span className="flex items-center gap-1 text-red-600">
+                        <XCircle className="h-4 w-4" /> Failed
+                      </span>
+                    )}
 
-                  {["new", "staged"].includes(rep.status) && (
-                    <span className="text-slate-600 capitalize">
-                      {rep.status}
-                    </span>
-                  )}
+                    {/* ✅ NEW: Passed */}
+                    {status === "passed" && (
+                      <span className="flex items-center gap-1 text-blue-600">
+                        <CheckCircle className="h-4 w-4" /> Passed
+                      </span>
+                    )}
 
-                  {/* ✅ NEW: Pending (because backend returns 'pending' string) */}
-                  {rep.status === "pending" && (
-                    <span className="text-slate-500">Pending</span>
-                  )}
+                    {status === "submitted" && (
+                      <span className="flex items-center gap-1 text-sky-600">
+                        <CheckCircle className="h-4 w-4" /> Submitted
+                      </span>
+                    )}
 
-                  {/* Existing fallback */}
-                  {!rep.status && (
-                    <span className="text-slate-500">Pending</span>
-                  )}
-                </td>
+                    {status === "validated" && (
+                      <span className="flex items-center gap-1 text-amber-600">
+                        <AlertTriangle className="h-4 w-4" /> Validated
+                      </span>
+                    )}
 
-                <td className="px-3 py-2 border">
-                  {rep.uploaded_at_utc
-                    ? new Date(rep.uploaded_at_utc).toLocaleString()
-                    : "-"}
-                </td>
+                    {["new", "staged"].includes(status) && (
+                      <span className="text-slate-600 capitalize">
+                        {status}
+                      </span>
+                    )}
 
-                <td className="px-3 py-2 border">{rep.passed_count ?? 0}</td>
-                <td className="px-3 py-2 border">{rep.failed_count ?? 0}</td>
-                <td className="px-3 py-2 border">{rep.approved_count ?? 0}</td>
+                    {/* ✅ NEW: Pending (because backend returns 'pending' string) */}
+                    {status === "pending" && (
+                      <span className="text-slate-500">Pending</span>
+                    )}
 
-                <td className="px-3 py-2 border">
-                  <button
-                    onClick={() => navigate(`/reports/${rep.report_number}`)}
-                    className="text-indigo-600 underline"
-                  >
-                    View Details
-                  </button>
-                </td>
-              </tr>
-            ))}
+                    {/* Existing fallback */}
+                    {!rep.status && (
+                      <span className="text-slate-500">Pending</span>
+                    )}
+                  </td>
+
+                  <td className="px-3 py-2 border">
+                    {rep.uploaded_at_utc
+                      ? new Date(rep.uploaded_at_utc).toLocaleString()
+                      : "-"}
+                  </td>
+
+                  <td className="px-3 py-2 border">{rep.passed_count ?? 0}</td>
+                  <td className="px-3 py-2 border">{rep.failed_count ?? 0}</td>
+                  <td className="px-3 py-2 border">
+                    {rep.approved_count ?? 0}
+                  </td>
+
+                  {/* ✅ Action: disable View Details when still processing */}
+                  <td className="px-3 py-2 border">
+                    <button
+                      onClick={() => {
+                        if (isProcessing) return;
+                        navigate(`/reports/${rep.report_number}`);
+                      }}
+                      disabled={isProcessing}
+                      className={
+                        isProcessing
+                          ? "text-gray-400 cursor-not-allowed"
+                          : "text-indigo-600 underline"
+                      }
+                      title={
+                        isProcessing
+                          ? "Report is still processing. Please wait and refresh."
+                          : "View report details"
+                      }
+                    >
+                      {isProcessing ? "Processing..." : "View Details"}
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
 
             {processed.slice.length === 0 && (
               <tr>
