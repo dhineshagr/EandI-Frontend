@@ -490,14 +490,6 @@ export default function UploadDashboard() {
                       >
                         <CloudUpload className="mr-2 h-4 w-4" /> Browse…
                       </button>
-
-                      <a
-                        href="/templates/member-template.xlsx"
-                        download
-                        className="text-sm underline flex items-center gap-1 text-indigo-700 hover:text-indigo-800"
-                      >
-                        Download template <Download className="h-4 w-4" />
-                      </a>
                     </div>
 
                     <input
