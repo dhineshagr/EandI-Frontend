@@ -83,6 +83,7 @@ export default function SspReportsDashboard() {
   // Reload on filter/sort/pagination change
   useEffect(() => {
     fetchReports();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, filters, sort, page, pageSize]);
 
   // ======================================================================
@@ -289,7 +290,15 @@ export default function SspReportsDashboard() {
                   <td className="border px-3 py-2">{r.report_number}</td>
                   <td className="border px-3 py-2">{r.report_type}</td>
                   <td className="border px-3 py-2">{r.file_name}</td>
-                  <td className="border px-3 py-2">{r.uploaded_by}</td>
+
+                  {/* ✅ FIX: show name instead of numeric user id */}
+                  <td className="border px-3 py-2">
+                    {r.uploaded_by_display ||
+                      r.uploaded_by_name ||
+                      r.uploaded_by ||
+                      "System"}
+                  </td>
+
                   <td className="border px-3 py-2">
                     {r.uploaded_at_utc
                       ? format(new Date(r.uploaded_at_utc), "MM/dd/yyyy HH:mm")
