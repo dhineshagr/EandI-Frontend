@@ -158,6 +158,32 @@ export default function SspReportsDashboard() {
       maximumFractionDigits: 2,
     });
 
+  // ✅ NEW: consistent status display for ALL statuses (Approved/Failed/Passed/etc.)
+  const renderStatus = (value) => {
+    const s = String(value ?? "").trim();
+    if (!s) return <span className="text-slate-500">Pending</span>;
+
+    const key = s.toLowerCase();
+
+    // Use your Tailwind palette (no icons, simple + safe)
+    const cls =
+      key === "approved"
+        ? "text-emerald-700"
+        : key === "failed"
+        ? "text-red-700"
+        : key === "passed"
+        ? "text-blue-700"
+        : key === "validated"
+        ? "text-amber-700"
+        : key === "submitted"
+        ? "text-sky-700"
+        : key === "in progress" || key === "processing"
+        ? "text-slate-700"
+        : "text-slate-700";
+
+    return <span className={cls}>{s}</span>;
+  };
+
   // ======================================================================
   // 🎨 UI
   // ======================================================================
@@ -248,7 +274,7 @@ export default function SspReportsDashboard() {
                 { key: "report_number", label: "Report #" },
                 { key: "report_type", label: "Type" },
                 { key: "file_name", label: "File" },
-                { key: "uploaded_by", label: "Uploaded By" },
+                { key: "uploaded_by_display", label: "Uploaded By" }, // ✅ sort key can use display field
                 { key: "uploaded_at_utc", label: "Uploaded At" },
                 { key: "report_status", label: "Status" },
                 { key: "passed_count", label: "Passed" },
@@ -304,17 +330,20 @@ export default function SspReportsDashboard() {
                       ? format(new Date(r.uploaded_at_utc), "MM/dd/yyyy HH:mm")
                       : ""}
                   </td>
-                  <td className="border px-3 py-2 capitalize">
-                    {r.report_status}
+
+                  {/* ✅ FIX: show ALL statuses */}
+                  <td className="border px-3 py-2">
+                    {renderStatus(r.report_status)}
+                  </td>
+
+                  <td className="border px-3 py-2 text-center">
+                    {r.passed_count ?? 0}
                   </td>
                   <td className="border px-3 py-2 text-center">
-                    {r.passed_count}
+                    {r.failed_count ?? 0}
                   </td>
                   <td className="border px-3 py-2 text-center">
-                    {r.failed_count}
-                  </td>
-                  <td className="border px-3 py-2 text-center">
-                    {r.approved_count}
+                    {r.approved_count ?? 0}
                   </td>
                   <td className="border px-3 py-2 text-right">
                     {formatMoney(r.total_purchase)}
@@ -322,6 +351,7 @@ export default function SspReportsDashboard() {
                   <td className="border px-3 py-2 text-right">
                     {formatMoney(r.total_caf)}
                   </td>
+
                   <td className="border px-3 py-2">
                     <button
                       onClick={() => navigate(`/reports/${r.report_number}`)}
