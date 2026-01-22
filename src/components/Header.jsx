@@ -1,5 +1,5 @@
 // src/components/Header.jsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import logo1x from "../images/EI_Logo_Standard_2020.png";
@@ -20,7 +20,6 @@ export default function Header() {
         const res = await apiGet("/me"); // apiFetch returns null on 401
         if (cancelled) return;
 
-        // If not authenticated, apiGet("/me") returns null
         if (!res || !res.user) {
           setUser(null);
           return;
@@ -39,25 +38,21 @@ export default function Header() {
     };
   }, [location.pathname]);
 
+  // ✅ IMPORTANT: compute derived values BEFORE conditional return (no hooks here)
+  const isBusinessPartner =
+    String(user?.user_type || "").toLowerCase() === "bp";
+
+  const roleBadge = isBusinessPartner
+    ? "Business Partner"
+    : user?.role || "Internal";
+
+  const displayName =
+    user?.display_name || user?.username || user?.email || "User";
+
   // Hide header if not authenticated
   if (!user) return null;
 
-  // ✅ USER TYPE / ROLE
-  const isBusinessPartner = useMemo(
-    () => String(user.user_type || "").toLowerCase() === "bp",
-    [user],
-  );
-
-  const roleBadge = useMemo(() => {
-    return isBusinessPartner ? "Business Partner" : user.role || "Internal";
-  }, [isBusinessPartner, user]);
-
-  // ✅ DISPLAY NAME
-  const displayName = useMemo(() => {
-    return user.display_name || user.username || user.email || "User";
-  }, [user]);
-
-  // ✅ Nav active styling
+  // Nav active styling
   const isActive = (p) =>
     location.pathname === p || location.pathname.startsWith(p + "/")
       ? "text-white font-semibold border-b-2 border-white pb-1"
