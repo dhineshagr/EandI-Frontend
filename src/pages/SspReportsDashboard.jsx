@@ -1,17 +1,13 @@
 // src/pages/SspReportsDashboard.jsx
 // ======================================================================
 // SSP Reports Dashboard (Okta SAML + Session-Based Auth)
-// ----------------------------------------------------------------------
-// ✔ No MSAL
-// ✔ No bearer tokens
-// ✔ Uses apiFetch() with secure session cookies
-// ✔ No hardcoded API URLs
-// ✔ All existing functionality preserved
 // ======================================================================
 
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
+
+import { CheckCircle, XCircle, AlertTriangle } from "lucide-react";
 
 // Centralized API utilities
 import { apiFetch } from "../api/apiClient";
@@ -80,7 +76,6 @@ export default function SspReportsDashboard() {
     }
   };
 
-  // Reload on filter/sort/pagination change
   useEffect(() => {
     fetchReports();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -157,32 +152,6 @@ export default function SspReportsDashboard() {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     });
-
-  // ✅ NEW: consistent status display for ALL statuses (Approved/Failed/Passed/etc.)
-  const renderStatus = (value) => {
-    const s = String(value ?? "").trim();
-    if (!s) return <span className="text-slate-500">Pending</span>;
-
-    const key = s.toLowerCase();
-
-    // Use your Tailwind palette (no icons, simple + safe)
-    const cls =
-      key === "approved"
-        ? "text-emerald-700"
-        : key === "failed"
-        ? "text-red-700"
-        : key === "passed"
-        ? "text-blue-700"
-        : key === "validated"
-        ? "text-amber-700"
-        : key === "submitted"
-        ? "text-sky-700"
-        : key === "in progress" || key === "processing"
-        ? "text-slate-700"
-        : "text-slate-700";
-
-    return <span className={cls}>{s}</span>;
-  };
 
   // ======================================================================
   // 🎨 UI
@@ -274,7 +243,7 @@ export default function SspReportsDashboard() {
                 { key: "report_number", label: "Report #" },
                 { key: "report_type", label: "Type" },
                 { key: "file_name", label: "File" },
-                { key: "uploaded_by_display", label: "Uploaded By" }, // ✅ sort key can use display field
+                { key: "uploaded_by", label: "Uploaded By" },
                 { key: "uploaded_at_utc", label: "Uploaded At" },
                 { key: "report_status", label: "Status" },
                 { key: "passed_count", label: "Passed" },
@@ -311,64 +280,135 @@ export default function SspReportsDashboard() {
                 </td>
               </tr>
             ) : (
-              reports.map((r) => (
-                <tr key={r.report_number} className="hover:bg-slate-50">
-                  <td className="border px-3 py-2">{r.report_number}</td>
-                  <td className="border px-3 py-2">{r.report_type}</td>
-                  <td className="border px-3 py-2">{r.file_name}</td>
+              reports.map((r) => {
+                const status = String(r.report_status || "").toLowerCase();
 
-                  {/* ✅ FIX: show name instead of numeric user id */}
-                  <td className="border px-3 py-2">
-                    {r.uploaded_by_display ||
-                      r.uploaded_by_name ||
-                      r.uploaded_by ||
-                      "System"}
-                  </td>
+                // If you want to disable View Details for processing states in SSP too:
+                const isProcessing = [
+                  "pending",
+                  "new",
+                  "staged",
+                  "submitted",
+                ].includes(status);
 
-                  <td className="border px-3 py-2">
-                    {r.uploaded_at_utc
-                      ? format(new Date(r.uploaded_at_utc), "MM/dd/yyyy HH:mm")
-                      : ""}
-                  </td>
+                return (
+                  <tr key={r.report_number} className="hover:bg-slate-50">
+                    <td className="border px-3 py-2">{r.report_number}</td>
+                    <td className="border px-3 py-2">{r.report_type}</td>
+                    <td className="border px-3 py-2">{r.file_name}</td>
 
-                  {/* ✅ FIX: show ALL statuses */}
-                  <td className="border px-3 py-2">
-                    {renderStatus(r.report_status)}
-                  </td>
+                    {/* ✅ Uploaded By: show name instead of numeric user id */}
+                    <td className="border px-3 py-2">
+                      {r.uploaded_by_display ||
+                        r.uploaded_by_name ||
+                        r.uploaded_by ||
+                        "System"}
+                    </td>
 
-                  <td className="border px-3 py-2 text-center">
-                    {r.passed_count ?? 0}
-                  </td>
-                  <td className="border px-3 py-2 text-center">
-                    {r.failed_count ?? 0}
-                  </td>
-                  <td className="border px-3 py-2 text-center">
-                    {r.approved_count ?? 0}
-                  </td>
-                  <td className="border px-3 py-2 text-right">
-                    {formatMoney(r.total_purchase)}
-                  </td>
-                  <td className="border px-3 py-2 text-right">
-                    {formatMoney(r.total_caf)}
-                  </td>
+                    <td className="border px-3 py-2">
+                      {r.uploaded_at_utc
+                        ? format(
+                            new Date(r.uploaded_at_utc),
+                            "MM/dd/yyyy HH:mm"
+                          )
+                        : ""}
+                    </td>
 
-                  <td className="border px-3 py-2">
-                    <button
-                      onClick={() => navigate(`/reports/${r.report_number}`)}
-                      className="text-blue-600 text-xs underline"
-                    >
-                      View Details
-                    </button>
-                    <br />
-                    <button
-                      onClick={() => handleDownloadDetail(r.report_number)}
-                      className="text-emerald-600 text-xs underline"
-                    >
-                      Download VRF CSV
-                    </button>
-                  </td>
-                </tr>
-              ))
+                    {/* ✅ Status: show all statuses */}
+                    <td className="border px-3 py-2">
+                      {status === "approved" && (
+                        <span className="inline-flex items-center gap-1 text-emerald-600">
+                          <CheckCircle className="h-4 w-4" /> Approved
+                        </span>
+                      )}
+
+                      {status === "failed" && (
+                        <span className="inline-flex items-center gap-1 text-red-600">
+                          <XCircle className="h-4 w-4" /> Failed
+                        </span>
+                      )}
+
+                      {status === "passed" && (
+                        <span className="inline-flex items-center gap-1 text-blue-600">
+                          <CheckCircle className="h-4 w-4" /> Passed
+                        </span>
+                      )}
+
+                      {status === "submitted" && (
+                        <span className="inline-flex items-center gap-1 text-sky-600">
+                          <CheckCircle className="h-4 w-4" /> Submitted
+                        </span>
+                      )}
+
+                      {status === "validated" && (
+                        <span className="inline-flex items-center gap-1 text-amber-600">
+                          <AlertTriangle className="h-4 w-4" /> Validated
+                        </span>
+                      )}
+
+                      {["new", "staged", "imported"].includes(status) && (
+                        <span className="text-slate-600 capitalize">
+                          {status}
+                        </span>
+                      )}
+
+                      {status === "pending" && (
+                        <span className="text-slate-500">Pending</span>
+                      )}
+
+                      {!status && (
+                        <span className="text-slate-500">Pending</span>
+                      )}
+                    </td>
+
+                    <td className="border px-3 py-2 text-center">
+                      {r.passed_count}
+                    </td>
+                    <td className="border px-3 py-2 text-center">
+                      {r.failed_count}
+                    </td>
+                    <td className="border px-3 py-2 text-center">
+                      {r.approved_count}
+                    </td>
+
+                    <td className="border px-3 py-2 text-right">
+                      {formatMoney(r.total_purchase)}
+                    </td>
+                    <td className="border px-3 py-2 text-right">
+                      {formatMoney(r.total_caf)}
+                    </td>
+
+                    <td className="border px-3 py-2">
+                      <button
+                        onClick={() => {
+                          if (isProcessing) return;
+                          navigate(`/reports/${r.report_number}`);
+                        }}
+                        disabled={isProcessing}
+                        className={
+                          isProcessing
+                            ? "text-gray-400 cursor-not-allowed text-xs underline"
+                            : "text-blue-600 text-xs underline"
+                        }
+                        title={
+                          isProcessing
+                            ? "Report is still processing. Please wait and refresh."
+                            : "View report details"
+                        }
+                      >
+                        View Details
+                      </button>
+                      <br />
+                      <button
+                        onClick={() => handleDownloadDetail(r.report_number)}
+                        className="text-emerald-600 text-xs underline"
+                      >
+                        Download VRF CSV
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
