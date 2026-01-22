@@ -2,6 +2,7 @@
 // ✅ Add Passed + Pending handling (do NOT remove other logic)
 // ✅ Disable “View Details” button for processing reports (pending/new/staged/submitted)
 // ✅ Normalize status once per row to avoid case issues
+// ✅ Derive final status from counts when backend is stuck in pending/submitted/etc.
 
 import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
@@ -189,22 +190,51 @@ export default function ReportsDashboard() {
 
           <tbody>
             {processed.slice.map((rep) => {
-              // ✅ FIX: Trim + lowercase = handles "Submitted " / " PENDING" etc.
-              const status = String(rep.status ?? "")
+              // ✅ Normalize backend status once per row
+              const rawStatus = String(rep.status ?? "")
                 .trim()
                 .toLowerCase();
 
-              // ✅ FIX: include common backend processing values (safe)
-              const isProcessing = [
-                "pending",
-                "new",
-                "staged",
-                "submitted",
-                "processing",
-                "in_progress",
-                "in-progress",
-                "queued",
-              ].includes(status);
+              // Counts
+              const passedCount = Number(rep.passed_count ?? 0);
+              const failedCount = Number(rep.failed_count ?? 0);
+              const approvedCount = Number(rep.approved_count ?? 0);
+              const totalKnown = passedCount + failedCount + approvedCount;
+
+              // Treat these as backend "processing-like" statuses
+              const processingLike = ["pending", "new", "staged", "submitted"];
+
+              // ✅ Derive final status from counts when backend is stuck in processing statuses
+              const deriveStatusFromCounts = () => {
+                // 1) Failed if any failed rows exist
+                if (failedCount > 0) return "failed";
+
+                // If we don't have any counts, keep backend status
+                if (totalKnown === 0) return rawStatus || "pending";
+
+                // 2) Approved if ALL rows are approved
+                if (approvedCount > 0 && approvedCount === totalKnown)
+                  return "approved";
+
+                // 3) Passed if ALL rows are passed
+                if (passedCount > 0 && passedCount === totalKnown)
+                  return "passed";
+
+                // 4) Processed but mixed (Passed + Approved, no failures) → show Passed
+                if (failedCount === 0 && passedCount + approvedCount > 0)
+                  return "passed";
+
+                // fallback
+                return rawStatus || "pending";
+              };
+
+              // Final status used for UI + action logic
+              const status = processingLike.includes(rawStatus)
+                ? deriveStatusFromCounts()
+                : rawStatus;
+
+              // ✅ Disable action ONLY if final status is still processing-like
+              const isProcessing = processingLike.includes(status);
 
               return (
                 <tr key={rep.report_number} className="hover:bg-slate-50">
@@ -265,9 +295,7 @@ export default function ReportsDashboard() {
                       <span className="text-slate-500">Pending</span>
                     )}
 
-                    {!rep.status && (
-                      <span className="text-slate-500">Pending</span>
-                    )}
+                    {!status && <span className="text-slate-500">Pending</span>}
                   </td>
 
                   <td className="px-3 py-2 border">
@@ -276,11 +304,9 @@ export default function ReportsDashboard() {
                       : "-"}
                   </td>
 
-                  <td className="px-3 py-2 border">{rep.passed_count ?? 0}</td>
-                  <td className="px-3 py-2 border">{rep.failed_count ?? 0}</td>
-                  <td className="px-3 py-2 border">
-                    {rep.approved_count ?? 0}
-                  </td>
+                  <td className="px-3 py-2 border">{passedCount}</td>
+                  <td className="px-3 py-2 border">{failedCount}</td>
+                  <td className="px-3 py-2 border">{approvedCount}</td>
 
                   {/* ✅ Action: disable View Details when still processing */}
                   <td className="px-3 py-2 border">
