@@ -189,15 +189,21 @@ export default function ReportsDashboard() {
 
           <tbody>
             {processed.slice.map((rep) => {
-              // ✅ Normalize status once per row (prevents casing mismatches)
-              const status = String(rep.status || "").toLowerCase();
+              // ✅ FIX: Trim + lowercase = handles "Submitted " / " PENDING" etc.
+              const status = String(rep.status ?? "")
+                .trim()
+                .toLowerCase();
 
-              // ✅ Treat these as "still processing"
+              // ✅ FIX: include common backend processing values (safe)
               const isProcessing = [
                 "pending",
                 "new",
                 "staged",
                 "submitted",
+                "processing",
+                "in_progress",
+                "in-progress",
+                "queued",
               ].includes(status);
 
               return (
@@ -217,7 +223,7 @@ export default function ReportsDashboard() {
                       "-"}
                   </td>
 
-                  {/* ✅ Status (added passed + pending, kept everything else) */}
+                  {/* ✅ Status */}
                   <td className="px-3 py-2 border">
                     {status === "approved" && (
                       <span className="flex items-center gap-1 text-emerald-600">
@@ -231,7 +237,6 @@ export default function ReportsDashboard() {
                       </span>
                     )}
 
-                    {/* ✅ NEW: Passed */}
                     {status === "passed" && (
                       <span className="flex items-center gap-1 text-blue-600">
                         <CheckCircle className="h-4 w-4" /> Passed
@@ -256,12 +261,10 @@ export default function ReportsDashboard() {
                       </span>
                     )}
 
-                    {/* ✅ NEW: Pending (because backend returns 'pending' string) */}
                     {status === "pending" && (
                       <span className="text-slate-500">Pending</span>
                     )}
 
-                    {/* Existing fallback */}
                     {!rep.status && (
                       <span className="text-slate-500">Pending</span>
                     )}
