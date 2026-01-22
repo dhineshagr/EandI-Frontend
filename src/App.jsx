@@ -4,6 +4,8 @@ import {
   Routes,
   Route,
   Outlet,
+  Navigate,
+  useLocation,
 } from "react-router-dom";
 
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -32,6 +34,25 @@ const AppLayout = () => (
   </>
 );
 
+/**
+ * ✅ Public wrapper:
+ * - keeps login pages clean
+ * - avoids accidental redirect loops after logout
+ *
+ * Note: This does NOT replace your auth logic.
+ * It just standardizes root path behavior.
+ */
+const PublicEntry = ({ children }) => {
+  const location = useLocation();
+
+  // If user lands on "/" we normalize to "/login"
+  if (location.pathname === "/") {
+    return <Navigate to="/login" replace />;
+  }
+
+  return children;
+};
+
 export default function App() {
   return (
     <Router>
@@ -39,9 +60,26 @@ export default function App() {
         {/* =========================
            PUBLIC ROUTES
         ========================== */}
-        <Route path="/" element={<LoginPage />} />
-        <Route path="/login" element={<LoginPage />} />
+        <Route
+          path="/"
+          element={
+            <PublicEntry>
+              <LoginPage />
+            </PublicEntry>
+          }
+        />
+        <Route
+          path="/login"
+          element={
+            <PublicEntry>
+              <LoginPage />
+            </PublicEntry>
+          }
+        />
+
+        {/* ✅ Logout must stay PUBLIC */}
         <Route path="/logout" element={<LogoutPage />} />
+
         <Route path="/unauthorized" element={<UnauthorizedPage />} />
 
         {/* =========================
