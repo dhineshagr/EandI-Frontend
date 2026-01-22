@@ -1,13 +1,7 @@
 // src/pages/SspReportsDashboard.jsx
-// ======================================================================
-// SSP Reports Dashboard (Okta SAML + Session-Based Auth)
-// ======================================================================
-
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
-
-import { CheckCircle, XCircle, AlertTriangle } from "lucide-react";
 
 // Centralized API utilities
 import { apiFetch } from "../api/apiClient";
@@ -16,9 +10,6 @@ import { apiUrl } from "../api/config";
 export default function SspReportsDashboard() {
   const navigate = useNavigate();
 
-  // -------------------------------------------------------------------
-  // STATE
-  // -------------------------------------------------------------------
   const [reports, setReports] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -42,9 +33,10 @@ export default function SspReportsDashboard() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
 
-  // ======================================================================
-  // 📄 LOAD REPORTS (Session-Based API)
-  // ======================================================================
+  // ✅ choose what the SSP dashboard should show
+  // If you want to hide "Submitted", remove it from this list.
+  const STATUS_FILTER = ["approved", "failed", "passed", "submitted"];
+
   const fetchReports = async () => {
     try {
       setLoading(true);
@@ -61,6 +53,9 @@ export default function SspReportsDashboard() {
         order: sort.order,
         page,
         limit: pageSize,
+
+        // ✅ tell backend exactly which statuses you want
+        statuses: STATUS_FILTER.join(","),
       });
 
       const data = await apiFetch(apiUrl(`/ssp/reports?${params.toString()}`));
@@ -81,9 +76,6 @@ export default function SspReportsDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, filters, sort, page, pageSize]);
 
-  // ======================================================================
-  // 🔧 FILTER & SORT HANDLERS
-  // ======================================================================
   const handleFilterChange = (e) => {
     const { name, value } = e.target;
     setFilters((p) => ({ ...p, [name]: value }));
@@ -97,9 +89,6 @@ export default function SspReportsDashboard() {
     }));
   };
 
-  // ======================================================================
-  // 📤 EXPORT SUMMARY CSV
-  // ======================================================================
   const handleExportSummary = () => {
     if (!reports.length) return;
 
@@ -119,9 +108,6 @@ export default function SspReportsDashboard() {
     a.click();
   };
 
-  // ======================================================================
-  // 📥 DOWNLOAD VRF DETAIL (Session-Based)
-  // ======================================================================
   const handleDownloadDetail = async (reportNumber) => {
     try {
       const res = await fetch(apiUrl(`/ssp/reports/${reportNumber}/download`), {
@@ -142,7 +128,6 @@ export default function SspReportsDashboard() {
     }
   };
 
-  // Pagination helpers
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const start = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const end = Math.min(page * pageSize, total);
@@ -153,9 +138,22 @@ export default function SspReportsDashboard() {
       maximumFractionDigits: 2,
     });
 
-  // ======================================================================
-  // 🎨 UI
-  // ======================================================================
+  const renderStatus = (raw) => {
+    const status = String(raw || "").toLowerCase();
+
+    if (status === "approved")
+      return <span className="text-emerald-700 font-medium">Approved</span>;
+    if (status === "failed")
+      return <span className="text-red-700 font-medium">Failed</span>;
+    if (status === "passed")
+      return <span className="text-blue-700 font-medium">Passed</span>;
+    if (status === "submitted")
+      return <span className="text-slate-600 font-medium">Submitted</span>;
+
+    // fallback (should rarely happen once backend is fixed)
+    return <span className="text-slate-500">{raw || "-"}</span>;
+  };
+
   return (
     <div className="p-6 space-y-6">
       <h1 className="text-2xl font-bold">SSP Reports Dashboard</h1>
@@ -243,7 +241,7 @@ export default function SspReportsDashboard() {
                 { key: "report_number", label: "Report #" },
                 { key: "report_type", label: "Type" },
                 { key: "file_name", label: "File" },
-                { key: "uploaded_by", label: "Uploaded By" },
+                { key: "uploaded_by_display", label: "Uploaded By" },
                 { key: "uploaded_at_utc", label: "Uploaded At" },
                 { key: "report_status", label: "Status" },
                 { key: "passed_count", label: "Passed" },
@@ -280,135 +278,60 @@ export default function SspReportsDashboard() {
                 </td>
               </tr>
             ) : (
-              reports.map((r) => {
-                const status = String(r.report_status || "").toLowerCase();
+              reports.map((r) => (
+                <tr key={r.report_number} className="hover:bg-slate-50">
+                  <td className="border px-3 py-2">{r.report_number}</td>
+                  <td className="border px-3 py-2">{r.report_type}</td>
+                  <td className="border px-3 py-2">{r.file_name}</td>
 
-                // If you want to disable View Details for processing states in SSP too:
-                const isProcessing = [
-                  "pending",
-                  "new",
-                  "staged",
-                  "submitted",
-                ].includes(status);
+                  <td className="border px-3 py-2">
+                    {r.uploaded_by_display || "System"}
+                  </td>
 
-                return (
-                  <tr key={r.report_number} className="hover:bg-slate-50">
-                    <td className="border px-3 py-2">{r.report_number}</td>
-                    <td className="border px-3 py-2">{r.report_type}</td>
-                    <td className="border px-3 py-2">{r.file_name}</td>
+                  <td className="border px-3 py-2">
+                    {r.uploaded_at_utc
+                      ? format(new Date(r.uploaded_at_utc), "MM/dd/yyyy HH:mm")
+                      : ""}
+                  </td>
 
-                    {/* ✅ Uploaded By: show name instead of numeric user id */}
-                    <td className="border px-3 py-2">
-                      {r.uploaded_by_display ||
-                        r.uploaded_by_name ||
-                        r.uploaded_by ||
-                        "System"}
-                    </td>
+                  <td className="border px-3 py-2">
+                    {renderStatus(r.report_status)}
+                  </td>
 
-                    <td className="border px-3 py-2">
-                      {r.uploaded_at_utc
-                        ? format(
-                            new Date(r.uploaded_at_utc),
-                            "MM/dd/yyyy HH:mm"
-                          )
-                        : ""}
-                    </td>
+                  <td className="border px-3 py-2 text-center">
+                    {r.passed_count ?? 0}
+                  </td>
+                  <td className="border px-3 py-2 text-center">
+                    {r.failed_count ?? 0}
+                  </td>
+                  <td className="border px-3 py-2 text-center">
+                    {r.approved_count ?? 0}
+                  </td>
 
-                    {/* ✅ Status: show all statuses */}
-                    <td className="border px-3 py-2">
-                      {status === "approved" && (
-                        <span className="inline-flex items-center gap-1 text-emerald-600">
-                          <CheckCircle className="h-4 w-4" /> Approved
-                        </span>
-                      )}
+                  <td className="border px-3 py-2 text-right">
+                    {formatMoney(r.total_purchase)}
+                  </td>
+                  <td className="border px-3 py-2 text-right">
+                    {formatMoney(r.total_caf)}
+                  </td>
 
-                      {status === "failed" && (
-                        <span className="inline-flex items-center gap-1 text-red-600">
-                          <XCircle className="h-4 w-4" /> Failed
-                        </span>
-                      )}
-
-                      {status === "passed" && (
-                        <span className="inline-flex items-center gap-1 text-blue-600">
-                          <CheckCircle className="h-4 w-4" /> Passed
-                        </span>
-                      )}
-
-                      {status === "submitted" && (
-                        <span className="inline-flex items-center gap-1 text-sky-600">
-                          <CheckCircle className="h-4 w-4" /> Submitted
-                        </span>
-                      )}
-
-                      {status === "validated" && (
-                        <span className="inline-flex items-center gap-1 text-amber-600">
-                          <AlertTriangle className="h-4 w-4" /> Validated
-                        </span>
-                      )}
-
-                      {["new", "staged", "imported"].includes(status) && (
-                        <span className="text-slate-600 capitalize">
-                          {status}
-                        </span>
-                      )}
-
-                      {status === "pending" && (
-                        <span className="text-slate-500">Pending</span>
-                      )}
-
-                      {!status && (
-                        <span className="text-slate-500">Pending</span>
-                      )}
-                    </td>
-
-                    <td className="border px-3 py-2 text-center">
-                      {r.passed_count}
-                    </td>
-                    <td className="border px-3 py-2 text-center">
-                      {r.failed_count}
-                    </td>
-                    <td className="border px-3 py-2 text-center">
-                      {r.approved_count}
-                    </td>
-
-                    <td className="border px-3 py-2 text-right">
-                      {formatMoney(r.total_purchase)}
-                    </td>
-                    <td className="border px-3 py-2 text-right">
-                      {formatMoney(r.total_caf)}
-                    </td>
-
-                    <td className="border px-3 py-2">
-                      <button
-                        onClick={() => {
-                          if (isProcessing) return;
-                          navigate(`/reports/${r.report_number}`);
-                        }}
-                        disabled={isProcessing}
-                        className={
-                          isProcessing
-                            ? "text-gray-400 cursor-not-allowed text-xs underline"
-                            : "text-blue-600 text-xs underline"
-                        }
-                        title={
-                          isProcessing
-                            ? "Report is still processing. Please wait and refresh."
-                            : "View report details"
-                        }
-                      >
-                        View Details
-                      </button>
-                      <br />
-                      <button
-                        onClick={() => handleDownloadDetail(r.report_number)}
-                        className="text-emerald-600 text-xs underline"
-                      >
-                        Download VRF CSV
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })
+                  <td className="border px-3 py-2">
+                    <button
+                      onClick={() => navigate(`/reports/${r.report_number}`)}
+                      className="text-blue-600 text-xs underline"
+                    >
+                      View Details
+                    </button>
+                    <br />
+                    <button
+                      onClick={() => handleDownloadDetail(r.report_number)}
+                      className="text-emerald-600 text-xs underline"
+                    >
+                      Download VRF CSV
+                    </button>
+                  </td>
+                </tr>
+              ))
             )}
           </tbody>
         </table>
