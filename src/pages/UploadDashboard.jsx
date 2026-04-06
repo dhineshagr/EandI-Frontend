@@ -176,6 +176,11 @@ export default function UploadDashboard() {
     userType === "internal" &&
     ["admin", "accounting", "ssp_admins"].includes(normalizedRole);
 
+  // ✅ New report-level fields
+  const [period, setPeriod] = useState("");
+  const [bpCode, setBpCode] = useState("");
+  const [contractId, setContractId] = useState("");
+
   // ✅ FIXED ENDPOINT
   const fetchUserProfile = async () => {
     try {
@@ -183,6 +188,14 @@ export default function UploadDashboard() {
       if (data?.user) {
         setUser(data.user);
         localStorage.setItem("userProfile", JSON.stringify(data.user));
+
+        // Auto-fill BP code for BP users
+        if (
+          String(data.user?.user_type || "").toLowerCase() === "bp" &&
+          data.user?.bp_code
+        ) {
+          setBpCode(data.user.bp_code);
+        }
       }
     } catch (err) {
       console.warn("User profile failed:", err);
@@ -227,7 +240,7 @@ export default function UploadDashboard() {
       metadata: {
         uploadedBy: user.username || displayName,
         userType,
-        bpCode: user.bp_code || "N/A",
+        bpCode: user.bp_code || bpCode || "N/A",
         uploadedAt: new Date().toISOString(),
         source: "excel-ui",
       },
@@ -343,7 +356,7 @@ export default function UploadDashboard() {
       // Reset input so same file can be selected again
       if (inputRef.current) inputRef.current.value = "";
     },
-    [toast],
+    [toast, canViewValidationDetails],
   );
 
   // =======================================================
@@ -356,6 +369,20 @@ export default function UploadDashboard() {
       if (!item && !isZeroSales) {
         toast({
           title: "No file selected",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // ✅ Resolve BP code
+      const resolvedBpCode =
+        userType === "bp" ? user?.bp_code || bpCode || null : bpCode || null;
+
+      // ✅ Zero Sales must have period
+      if (isZeroSales && !period) {
+        toast({
+          title: "Period required",
+          description: "Please select a period for Zero Sales Declaration.",
           variant: "destructive",
         });
         return;
@@ -375,6 +402,9 @@ export default function UploadDashboard() {
           filename: isZeroSales ? "ZERO_SALES" : item.name,
           report_type: "Members",
           note: isZeroSales ? "Zero Sales Declaration" : "",
+          period: period || null,
+          bp_code: resolvedBpCode,
+          contract_id: contractId || null,
         }),
       });
 
@@ -447,6 +477,68 @@ export default function UploadDashboard() {
         <div className="grid grid-cols-1 xl:grid-cols-[2fr_1.6fr] gap-6">
           {/* LEFT SIDE */}
           <div className="space-y-6">
+            {/* Report-Level Fields */}
+            <div className="rounded-2xl border backdrop-blur bg-white/80 shadow-md">
+              <div className="p-5 border-b bg-gradient-to-r from-slate-50 to-transparent">
+                <h2 className="font-bold text-lg tracking-tight text-emerald-700">
+                  Report Details
+                </h2>
+                <p className="text-sm text-slate-500 mt-1">
+                  Provide report-level details before upload or zero sales
+                  submission.
+                </p>
+              </div>
+
+              <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    Period
+                  </label>
+                  <input
+                    type="month"
+                    value={period}
+                    onChange={(e) => setPeriod(e.target.value)}
+                    className="w-full border rounded px-3 py-2"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    BP Code
+                  </label>
+                  <input
+                    type="text"
+                    value={
+                      userType === "bp" ? user?.bp_code || bpCode || "" : bpCode
+                    }
+                    onChange={(e) => setBpCode(e.target.value)}
+                    disabled={userType === "bp"}
+                    placeholder={
+                      userType === "bp"
+                        ? "Auto-filled from login"
+                        : "Enter BP Code"
+                    }
+                    className={`w-full border rounded px-3 py-2 ${
+                      userType === "bp" ? "bg-slate-100 text-slate-500" : ""
+                    }`}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    Contract ID
+                  </label>
+                  <input
+                    type="text"
+                    value={contractId}
+                    onChange={(e) => setContractId(e.target.value)}
+                    placeholder="Enter Contract ID"
+                    className="w-full border rounded px-3 py-2"
+                  />
+                </div>
+              </div>
+            </div>
+
             {/* Upload Card */}
             <div className="rounded-2xl border backdrop-blur bg-white/80 shadow-md">
               <div className="p-5 border-b bg-gradient-to-r from-slate-50 to-transparent">
