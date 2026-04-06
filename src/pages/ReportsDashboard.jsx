@@ -3,7 +3,8 @@
 // ✅ Disable “View Details” button for processing reports (pending/new/staged/submitted)
 // ✅ Normalize status once per row to avoid case issues
 // ✅ Derive final status from counts when backend is stuck in pending/submitted/etc.
-// ✅ ZERO_SALES should show View Details instead of Processing...
+// ✅ ZERO_SALES should NOT open details page
+// ✅ ZERO_SALES should show "Zero Sales Submitted"
 
 import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
@@ -247,9 +248,9 @@ export default function ReportsDashboard() {
                 ? deriveStatusFromCounts()
                 : rawStatus;
 
-              // ✅ ZERO_SALES should never be treated as processing
-              const isProcessing =
-                !isZeroSales && processingLike.includes(status);
+              // ✅ Disable details for processing reports and zero sales
+              const isProcessing = processingLike.includes(status);
+              const disableViewDetails = isProcessing || isZeroSales;
 
               return (
                 <tr key={rep.report_number} className="hover:bg-slate-50">
@@ -323,26 +324,32 @@ export default function ReportsDashboard() {
                   <td className="px-3 py-2 border">{failedCount}</td>
                   <td className="px-3 py-2 border">{approvedCount}</td>
 
-                  {/* ✅ Action: disable View Details when still processing */}
+                  {/* ✅ Action */}
                   <td className="px-3 py-2 border">
                     <button
                       onClick={() => {
-                        if (isProcessing) return;
+                        if (disableViewDetails) return;
                         navigate(`/reports/${rep.report_number}`);
                       }}
-                      disabled={isProcessing}
+                      disabled={disableViewDetails}
                       className={
-                        isProcessing
+                        disableViewDetails
                           ? "text-gray-400 cursor-not-allowed"
                           : "text-indigo-600 underline"
                       }
                       title={
-                        isProcessing
-                          ? "Report is still processing. Please wait and refresh."
-                          : "View report details"
+                        isZeroSales
+                          ? "Zero Sales declaration has no detail rows."
+                          : isProcessing
+                            ? "Report is still processing. Please wait and refresh."
+                            : "View report details"
                       }
                     >
-                      {isProcessing ? "Processing..." : "View Details"}
+                      {isZeroSales
+                        ? "Zero Sales Submitted"
+                        : isProcessing
+                          ? "Processing..."
+                          : "View Details"}
                     </button>
                   </td>
                 </tr>
