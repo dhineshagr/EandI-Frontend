@@ -5,6 +5,7 @@
 // ✅ Derive final status from counts when backend is stuck in pending/submitted/etc.
 // ✅ ZERO_SALES should NOT open details page
 // ✅ ZERO_SALES should show "Zero Sales Submitted"
+// ✅ Added Period / Supplier / Contract columns
 
 import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
@@ -73,6 +74,9 @@ export default function ReportsDashboard() {
           rep.uploaded_by,
           rep.status,
           rep.report_type,
+          rep.period,
+          rep.bp_code,
+          rep.contract_id,
           String(rep.report_number),
         ]
           .filter(Boolean)
@@ -149,13 +153,13 @@ export default function ReportsDashboard() {
       <div className="bg-white shadow p-4 rounded flex gap-4 items-center">
         <input
           type="text"
-          placeholder="Search by file, user, or report #"
+          placeholder="Search by file, user, report #, period, supplier, or contract"
           value={search}
           onChange={(e) => {
             setSearch(e.target.value);
             setPage(1);
           }}
-          className="border rounded px-3 py-2 w-1/3"
+          className="border rounded px-3 py-2 w-1/2"
         />
       </div>
 
@@ -168,6 +172,9 @@ export default function ReportsDashboard() {
                 { key: "report_number", label: "Report #" },
                 { key: "report_type", label: "Type" },
                 { key: "filename", label: "File" },
+                { key: "period", label: "Period" },
+                { key: "bp_code", label: "Supplier" },
+                { key: "contract_id", label: "Contract" },
                 { key: "uploaded_by", label: "Uploaded By" },
                 { key: "status", label: "Status" },
                 { key: "uploaded_at_utc", label: "Uploaded At" },
@@ -261,6 +268,10 @@ export default function ReportsDashboard() {
                     <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
                     {rep.filename}
                   </td>
+
+                  <td className="px-3 py-2 border">{rep.period || "-"}</td>
+                  <td className="px-3 py-2 border">{rep.bp_code || "-"}</td>
+                  <td className="px-3 py-2 border">{rep.contract_id || "-"}</td>
 
                   <td className="px-3 py-2 border">
                     {rep.uploaded_by_display ||
@@ -358,7 +369,7 @@ export default function ReportsDashboard() {
 
             {processed.slice.length === 0 && (
               <tr>
-                <td colSpan="10" className="text-center py-4 text-slate-500">
+                <td colSpan="13" className="text-center py-4 text-slate-500">
                   No reports found
                 </td>
               </tr>

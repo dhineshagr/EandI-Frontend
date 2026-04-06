@@ -7,22 +7,19 @@
 // ✔ Uses apiFetch() with secure session cookies
 // ✔ No hardcoded API URLs
 // ✔ All existing functionality preserved
+// ✔ Added Period / Supplier / Contract columns
 // ======================================================================
 
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
 
-// Centralized API utilities
 import { apiFetch } from "../api/apiClient";
 import { apiUrl } from "../api/config";
 
 export default function SspReportsDashboard() {
   const navigate = useNavigate();
 
-  // -------------------------------------------------------------------
-  // STATE
-  // -------------------------------------------------------------------
   const [reports, setReports] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -46,9 +43,6 @@ export default function SspReportsDashboard() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
 
-  // ======================================================================
-  // 📄 LOAD REPORTS (Session-Based API)
-  // ======================================================================
   const fetchReports = async () => {
     try {
       setLoading(true);
@@ -65,8 +59,6 @@ export default function SspReportsDashboard() {
         order: sort.order,
         page,
         limit: pageSize,
-        // If you're passing statuses from UI, keep it here; otherwise ignore.
-        // statuses: "approved,failed,passed,submitted",
       });
 
       const data = await apiFetch(apiUrl(`/ssp/reports?${params.toString()}`));
@@ -82,15 +74,11 @@ export default function SspReportsDashboard() {
     }
   };
 
-  // Reload on filter/sort/pagination change
   useEffect(() => {
     fetchReports();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, filters, sort, page, pageSize]);
 
-  // ======================================================================
-  // 🔧 FILTER & SORT HANDLERS
-  // ======================================================================
   const handleFilterChange = (e) => {
     const { name, value } = e.target;
     setFilters((p) => ({ ...p, [name]: value }));
@@ -104,9 +92,6 @@ export default function SspReportsDashboard() {
     }));
   };
 
-  // ======================================================================
-  // 📤 EXPORT SUMMARY CSV
-  // ======================================================================
   const handleExportSummary = () => {
     if (!reports.length) return;
 
@@ -114,7 +99,7 @@ export default function SspReportsDashboard() {
     const rows = reports.map((r) =>
       Object.values(r)
         .map((v) => `"${v ?? ""}"`)
-        .join(",")
+        .join(","),
     );
 
     const csv = [headers, ...rows].join("\n");
@@ -126,9 +111,6 @@ export default function SspReportsDashboard() {
     a.click();
   };
 
-  // ======================================================================
-  // 📥 DOWNLOAD VRF DETAIL (Session-Based)
-  // ======================================================================
   const handleDownloadDetail = async (reportNumber) => {
     try {
       const res = await fetch(apiUrl(`/ssp/reports/${reportNumber}/download`), {
@@ -149,7 +131,6 @@ export default function SspReportsDashboard() {
     }
   };
 
-  // Pagination helpers
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const start = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const end = Math.min(page * pageSize, total);
@@ -160,14 +141,10 @@ export default function SspReportsDashboard() {
       maximumFractionDigits: 2,
     });
 
-  // ======================================================================
-  // 🎨 UI
-  // ======================================================================
   return (
     <div className="p-6 space-y-6">
       <h1 className="text-2xl font-bold">SSP Reports Dashboard</h1>
 
-      {/* FILTER PANEL */}
       <div className="bg-white p-4 rounded shadow space-y-4">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <input
@@ -241,7 +218,6 @@ export default function SspReportsDashboard() {
         </div>
       </div>
 
-      {/* TABLE */}
       <div className="bg-white shadow rounded overflow-x-auto">
         <table className="min-w-full border text-sm">
           <thead className="bg-slate-100">
@@ -250,6 +226,9 @@ export default function SspReportsDashboard() {
                 { key: "report_number", label: "Report #" },
                 { key: "report_type", label: "Type" },
                 { key: "file_name", label: "File" },
+                { key: "period", label: "Period" },
+                { key: "bp_code", label: "Supplier" },
+                { key: "contract_id", label: "Contract" },
                 { key: "uploaded_by_display", label: "Uploaded By" },
                 { key: "uploaded_at_utc", label: "Uploaded At" },
                 { key: "report_status", label: "Status" },
@@ -276,13 +255,13 @@ export default function SspReportsDashboard() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan="12" className="text-center py-4">
+                <td colSpan="15" className="text-center py-4">
                   Loading...
                 </td>
               </tr>
             ) : reports.length === 0 ? (
               <tr>
-                <td colSpan="12" className="text-center py-4 text-slate-500">
+                <td colSpan="15" className="text-center py-4 text-slate-500">
                   No reports found
                 </td>
               </tr>
@@ -290,7 +269,6 @@ export default function SspReportsDashboard() {
               reports.map((r) => {
                 const status = String(r.report_status || "").toLowerCase();
 
-                // ✅ Disable actions for Submitted (and any “not ready” states if they appear)
                 const actionsDisabled = [
                   "submitted",
                   "pending",
@@ -304,8 +282,10 @@ export default function SspReportsDashboard() {
                     <td className="border px-3 py-2">{r.report_number}</td>
                     <td className="border px-3 py-2">{r.report_type}</td>
                     <td className="border px-3 py-2">{r.file_name}</td>
+                    <td className="border px-3 py-2">{r.period || ""}</td>
+                    <td className="border px-3 py-2">{r.bp_code || ""}</td>
+                    <td className="border px-3 py-2">{r.contract_id || ""}</td>
 
-                    {/* Uploaded By fix */}
                     <td className="border px-3 py-2">
                       {r.uploaded_by_display ||
                         r.uploaded_by_name ||
@@ -317,7 +297,7 @@ export default function SspReportsDashboard() {
                       {r.uploaded_at_utc
                         ? format(
                             new Date(r.uploaded_at_utc),
-                            "MM/dd/yyyy HH:mm"
+                            "MM/dd/yyyy HH:mm",
                           )
                         : ""}
                     </td>
@@ -341,7 +321,6 @@ export default function SspReportsDashboard() {
                       {formatMoney(r.total_caf)}
                     </td>
 
-                    {/* ✅ Actions: disable BOTH for Submitted */}
                     <td className="border px-3 py-2">
                       <button
                         onClick={() => {
@@ -393,7 +372,6 @@ export default function SspReportsDashboard() {
         </table>
       </div>
 
-      {/* PAGINATION */}
       <div className="flex justify-between items-center mt-4">
         <span className="text-sm text-gray-600">
           {total === 0 ? "0–0 of 0" : `${start}–${end} of ${total}`}
