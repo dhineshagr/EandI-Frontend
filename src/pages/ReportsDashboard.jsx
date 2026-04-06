@@ -3,6 +3,7 @@
 // ✅ Disable “View Details” button for processing reports (pending/new/staged/submitted)
 // ✅ Normalize status once per row to avoid case issues
 // ✅ Derive final status from counts when backend is stuck in pending/submitted/etc.
+// ✅ ZERO_SALES should show View Details instead of Processing...
 
 import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
@@ -76,7 +77,7 @@ export default function ReportsDashboard() {
           .filter(Boolean)
           .join(" ")
           .toLowerCase()
-          .includes(q)
+          .includes(q),
       );
     }
 
@@ -195,6 +196,16 @@ export default function ReportsDashboard() {
                 .trim()
                 .toLowerCase();
 
+              // ✅ Detect zero sales by filename
+              const isZeroSales =
+                String(rep.filename || "")
+                  .trim()
+                  .toUpperCase() === "ZERO_SALES" ||
+                String(rep.filename || "")
+                  .trim()
+                  .toUpperCase()
+                  .startsWith("ZERO_SALES");
+
               // Counts
               const passedCount = Number(rep.passed_count ?? 0);
               const failedCount = Number(rep.failed_count ?? 0);
@@ -206,6 +217,9 @@ export default function ReportsDashboard() {
 
               // ✅ Derive final status from counts when backend is stuck in processing statuses
               const deriveStatusFromCounts = () => {
+                // Keep ZERO_SALES as submitted
+                if (isZeroSales) return rawStatus || "submitted";
+
                 // 1) Failed if any failed rows exist
                 if (failedCount > 0) return "failed";
 
@@ -233,8 +247,9 @@ export default function ReportsDashboard() {
                 ? deriveStatusFromCounts()
                 : rawStatus;
 
-              // ✅ Disable action ONLY if final status is still processing-like
-              const isProcessing = processingLike.includes(status);
+              // ✅ ZERO_SALES should never be treated as processing
+              const isProcessing =
+                !isZeroSales && processingLike.includes(status);
 
               return (
                 <tr key={rep.report_number} className="hover:bg-slate-50">
@@ -370,7 +385,7 @@ export default function ReportsDashboard() {
               ? "0–0 of 0"
               : `${(page - 1) * pageSize + 1}–${Math.min(
                   page * pageSize,
-                  processed.total
+                  processed.total,
                 )} of ${processed.total}`}
           </span>
         </div>

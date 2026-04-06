@@ -115,7 +115,7 @@ function validateBusinessRules(file, data, headers) {
 
     if (expected !== rounded) {
       errors.push(
-        `Row ${rowNumber}: CAF Dollars mismatch (expected ${expected}, got ${rounded})`
+        `Row ${rowNumber}: CAF Dollars mismatch (expected ${expected}, got ${rounded})`,
       );
     }
 
@@ -169,7 +169,7 @@ export default function UploadDashboard() {
       : `Internal – ${roleFromClaims || user?.role || "Admin"}`;
 
   const normalizedRole = String(
-    roleFromClaims || user?.role || ""
+    roleFromClaims || user?.role || "",
   ).toLowerCase();
 
   const canViewValidationDetails =
@@ -343,7 +343,7 @@ export default function UploadDashboard() {
       // Reset input so same file can be selected again
       if (inputRef.current) inputRef.current.value = "";
     },
-    [toast]
+    [toast],
   );
 
   // =======================================================
@@ -381,7 +381,7 @@ export default function UploadDashboard() {
       // 3️⃣ 🔔 SEND VALIDATION EMAIL (THIS WAS MISSING)
       if (item?.validation?.errors?.length > 0) {
         console.warn(
-          "Validation issues found - Upload will continue and email will be sent"
+          "Validation issues found - Upload will continue and email will be sent",
         );
 
         await apiFetch(apiUrl("/notify-accounting"), {
@@ -506,14 +506,12 @@ export default function UploadDashboard() {
             </div>
 
             {/* Zero Sales Button */}
-            {userType === "bp" && (
-              <button
-                onClick={() => startUpload(null, true)}
-                className="inline-flex items-center gap-2 rounded-xl bg-amber-500 text-white hover:bg-amber-600 px-4 py-2 font-semibold shadow"
-              >
-                <FileX className="h-4 w-4" /> Submit Zero Sales Declaration
-              </button>
-            )}
+            <button
+              onClick={() => startUpload(null, true)}
+              className="inline-flex items-center gap-2 rounded-xl bg-amber-500 text-white hover:bg-amber-600 px-4 py-2 font-semibold shadow"
+            >
+              <FileX className="h-4 w-4" /> Submit Zero Sales Declaration
+            </button>
 
             {/* Last Upload */}
             {lastUploaded && (
