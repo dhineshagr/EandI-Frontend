@@ -196,7 +196,7 @@ export default function SspReportsDashboard() {
             name="supplier"
             value={filters.supplier}
             onChange={handleFilterChange}
-            placeholder="Filter by Supplier (BP Code)"
+            placeholder="Filter by Supplier (Supplier Code)"
             className="border p-2 rounded"
           />
 

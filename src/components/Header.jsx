@@ -43,7 +43,7 @@ export default function Header() {
     String(user?.user_type || "").toLowerCase() === "bp";
 
   const roleBadge = isBusinessPartner
-    ? "Business Partner"
+    ? "Supplier"
     : user?.role || "Internal";
 
   const displayName =

@@ -45,7 +45,7 @@ export default function ManageUsers() {
     username: "",
     display_name: "",
     email: "",
-    role: "Business Partner",
+    role: "Supplier",
     password: "",
     bp_code: "",
     okta_id: "",
@@ -59,7 +59,7 @@ export default function ManageUsers() {
       username: "",
       display_name: "",
       email: "",
-      role: "Business Partner",
+      role: "Supplier",
       password: "",
       bp_code: "",
       okta_id: "",
@@ -74,7 +74,7 @@ export default function ManageUsers() {
     username: u.username || "",
     display_name: u.display_name || "",
     email: u.email || "",
-    role: u.role || "Business Partner",
+    role: u.role === "Business Partner" ? "Supplier" : u.role || "Supplier",
     password: "",
     bp_code: u.bp_code || "",
     okta_id: u.okta_id || "",
@@ -116,7 +116,7 @@ export default function ManageUsers() {
     if (!form.email) newErrors.email = "Email is required";
 
     if (form.user_type === "bp" && !editingId && !form.password) {
-      newErrors.password = "Password is required for Business Partner users";
+      newErrors.password = "Password is required for Supplier users";
     }
 
     setErrors(newErrors);
@@ -143,7 +143,7 @@ export default function ManageUsers() {
         {
           method: editingId ? "PUT" : "POST",
           body: JSON.stringify(payload),
-        }
+        },
       );
 
       resetForm();
@@ -193,8 +193,8 @@ export default function ManageUsers() {
     Object.values(u).some((val) =>
       String(val || "")
         .toLowerCase()
-        .includes(searchTerm.toLowerCase())
-    )
+        .includes(searchTerm.toLowerCase()),
+    ),
   );
 
   // ======================================================================
@@ -218,7 +218,7 @@ export default function ManageUsers() {
 
   const paginatedUsers = sortedUsers.slice(
     (currentPage - 1) * pageSize,
-    currentPage * pageSize
+    currentPage * pageSize,
   );
 
   const requestSort = (key) => {
@@ -297,7 +297,7 @@ export default function ManageUsers() {
                 { key: "username", label: "USERNAME" },
                 { key: "display_name", label: "DISPLAY NAME" },
                 { key: "email", label: "EMAIL" },
-                { key: "bp_code", label: "BP CODE" },
+                { key: "bp_code", label: "SUPPLIER CODE" },
                 { key: "okta_id", label: "OKTA ID" },
                 { key: "role", label: "ROLE" },
                 { key: "is_active", label: "STATUS" },
@@ -322,13 +322,17 @@ export default function ManageUsers() {
             {paginatedUsers.map((u) => (
               <tr key={u.user_id} className="hover:bg-slate-50">
                 <td className="border px-2">{u.user_id}</td>
-                <td className="border px-2">{u.user_type}</td>
+                <td className="border px-2">
+                  {u.user_type === "bp" ? "Supplier" : "Internal"}
+                </td>
                 <td className="border px-2">{u.username}</td>
                 <td className="border px-2">{u.display_name}</td>
                 <td className="border px-2">{u.email}</td>
                 <td className="border px-2">{u.bp_code}</td>
                 <td className="border px-2">{u.okta_id}</td>
-                <td className="border px-2">{u.role}</td>
+                <td className="border px-2">
+                  {u.role === "Business Partner" ? "Supplier" : u.role}
+                </td>
                 <td className="border px-2">
                   {u.is_active ? (
                     <span className="text-green-600 font-medium">Active</span>
@@ -421,7 +425,7 @@ export default function ManageUsers() {
                 className="border p-2 rounded"
               >
                 <option value="internal">Internal (Okta)</option>
-                <option value="bp">Business Partner</option>
+                <option value="bp">Supplier</option>
               </select>
 
               {/* USERNAME */}
@@ -470,7 +474,7 @@ export default function ManageUsers() {
               {/* BP CODE */}
               <input
                 name="bp_code"
-                placeholder="BP Code"
+                placeholder="Supplier Code"
                 value={form.bp_code}
                 onChange={handleChange}
                 className="border p-2 rounded"
@@ -518,7 +522,7 @@ export default function ManageUsers() {
               >
                 <option value="Accounting">Accounting</option>
                 <option value="Admin">Admin</option>
-                <option value="Business Partner">Business Partner</option>
+                <option value="Supplier">Supplier</option>
               </select>
             </div>
 

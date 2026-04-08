@@ -57,7 +57,7 @@ export default function RecentFilesList({
             <p className="font-medium text-slate-800">{item.name}</p>
             <p className="text-xs text-slate-500">
               Uploaded by: {item.uploadedBy}
-              {item.bpCode && ` • BP Code: ${item.bpCode}`}
+              {item.bpCode && ` • Supplier Code: ${item.bpCode}`}
             </p>
           </div>
 

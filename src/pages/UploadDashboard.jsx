@@ -165,7 +165,7 @@ export default function UploadDashboard() {
 
   const roleText =
     userType === "bp"
-      ? "Business Partner"
+      ? "Supplier"
       : `Internal – ${roleFromClaims || user?.role || "Admin"}`;
 
   const normalizedRole = String(
@@ -504,7 +504,7 @@ export default function UploadDashboard() {
 
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">
-                    BP Code
+                    Supplier Code
                   </label>
                   <input
                     type="text"
@@ -516,7 +516,7 @@ export default function UploadDashboard() {
                     placeholder={
                       userType === "bp"
                         ? "Auto-filled from login"
-                        : "Enter BP Code"
+                        : "Enter Supplier Code"
                     }
                     className={`w-full border rounded px-3 py-2 ${
                       userType === "bp" ? "bg-slate-100 text-slate-500" : ""
