@@ -62,13 +62,13 @@ export default function ReportDetail() {
     setLoading(true);
     try {
       const summaryData = await apiFetch(
-        apiUrl(`/reports/${reportNumber}/summary`)
+        apiUrl(`/reports/${reportNumber}/summary`),
       );
 
       const rowsData = await apiFetch(
         apiUrl(
-          `/reports/${reportNumber}/rows?status=${statusFilter}&dq=${dqFilter}`
-        )
+          `/reports/${reportNumber}/rows?status=${statusFilter}&dq=${dqFilter}`,
+        ),
       );
 
       setSummary(summaryData);
@@ -168,8 +168,8 @@ export default function ReportDetail() {
         Object.values(row).some((v) =>
           String(v ?? "")
             .toLowerCase()
-            .includes(q)
-        )
+            .includes(q),
+        ),
       );
     }
 
@@ -247,12 +247,12 @@ export default function ReportDetail() {
               summary.report.report_status === "Approved"
                 ? "bg-green-100 text-green-700"
                 : summary.report.report_status === "Failed"
-                ? "bg-red-100 text-red-700"
-                : summary.report.report_status === "Passed"
-                ? "bg-blue-100 text-blue-700"
-                : summary.report.report_status === "Validated"
-                ? "bg-purple-100 text-purple-700"
-                : "bg-gray-100 text-gray-700"
+                  ? "bg-red-100 text-red-700"
+                  : summary.report.report_status === "Passed"
+                    ? "bg-blue-100 text-blue-700"
+                    : summary.report.report_status === "Validated"
+                      ? "bg-purple-100 text-purple-700"
+                      : "bg-gray-100 text-gray-700"
             }`}
           >
             {summary.report.report_status}
@@ -263,11 +263,11 @@ export default function ReportDetail() {
           <button
             onClick={approveReport}
             disabled={rows.every(
-              (r) => (r.dq_status || "").toLowerCase() === "approved"
+              (r) => (r.dq_status || "").toLowerCase() === "approved",
             )}
             className={`px-4 py-2 rounded-lg text-white font-semibold ${
               rows.every(
-                (r) => (r.dq_status || "").toLowerCase() === "approved"
+                (r) => (r.dq_status || "").toLowerCase() === "approved",
               )
                 ? "bg-gray-400 cursor-not-allowed"
                 : "bg-emerald-600 hover:bg-emerald-700"
@@ -362,7 +362,7 @@ export default function ReportDetail() {
                   className="px-3 py-2 border capitalize cursor-pointer select-none"
                 >
                   <span className="inline-flex items-center gap-1">
-                    {col.replace(/_/g, " ")}
+                    {col === "CAF" ? "CAF %" : col.replace(/_/g, " ")}
                     {sortField === col && (
                       <span className="text-xs">
                         {sortDir === "asc" ? "▲" : "▼"}
@@ -388,12 +388,12 @@ export default function ReportDetail() {
                     dq === "approved"
                       ? "bg-green-50 border-l-4 border-green-400"
                       : dq === "failed"
-                      ? "bg-red-50 border-l-4 border-red-400"
-                      : dq === "passed"
-                      ? "bg-blue-50 border-l-4 border-blue-400"
-                      : dq === "validated"
-                      ? "bg-purple-50 border-l-4 border-purple-400"
-                      : ""
+                        ? "bg-red-50 border-l-4 border-red-400"
+                        : dq === "passed"
+                          ? "bg-blue-50 border-l-4 border-blue-400"
+                          : dq === "validated"
+                            ? "bg-purple-50 border-l-4 border-purple-400"
+                            : ""
                   }`}
                 >
                   {columns.map((col) => (
@@ -483,7 +483,7 @@ export default function ReportDetail() {
               ? "0–0 of 0"
               : `${(page - 1) * pageSize + 1}–${Math.min(
                   page * pageSize,
-                  processed.total
+                  processed.total,
                 )} of ${processed.total}`}
           </span>
         </div>
