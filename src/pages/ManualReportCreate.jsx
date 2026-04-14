@@ -138,7 +138,7 @@ export default function ManualReportCreate() {
       if (field === "purchase_dollars" || field === "caf") {
         const purchase = Number(next[index].purchase_dollars || 0);
         const cafRate = Number(next[index].caf || 0);
-        const calc = Math.round(purchase * cafRate * 100) / 100;
+         const calc = Math.round(purchase * (cafRate / 100) * 100) / 100;
 
         if (purchase && cafRate) {
           next[index].caf_dollars = String(calc);
