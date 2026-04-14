@@ -5,7 +5,7 @@ import { Plus, Trash2, ArrowLeft } from "lucide-react";
 import { apiFetch } from "../api/apiClient";
 import { apiUrl } from "../api/config";
 
-const FIELD_DEFS = [
+const REQUIRED_FIELDS = [
   { key: "customer_id", label: "Customer ID", type: "text" },
   { key: "member_number", label: "Member #", type: "text" },
   { key: "member_name", label: "Member Name", type: "text" },
@@ -13,19 +13,30 @@ const FIELD_DEFS = [
   { key: "member_city", label: "Member City", type: "text" },
   { key: "member_state", label: "Member State", type: "text" },
   { key: "member_zip", label: "Member Zip", type: "text" },
-  { key: "po", label: "PO", type: "text" },
-  { key: "invoice", label: "Invoice", type: "text" },
-  { key: "invoice_date", label: "Invoice Date", type: "date" },
   { key: "ship_to", label: "Ship To", type: "text" },
   { key: "ship_to_address", label: "Ship To Address", type: "text" },
   { key: "ship_to_city", label: "Ship To City", type: "text" },
   { key: "ship_to_state", label: "Ship To State", type: "text" },
   { key: "ship_to_zip", label: "Ship To Zip", type: "text" },
+  {
+    key: "purchase_dollars",
+    label: "Purchase Dollars",
+    type: "number",
+    step: "0.01",
+  },
+  { key: "caf", label: "CAF %", type: "number", step: "0.0001" },
+  { key: "caf_dollars", label: "CAF Dollars", type: "number", step: "0.01" },
+];
+
+const OPTIONAL_FIELDS = [
+  { key: "po", label: "PO", type: "text" },
+  { key: "invoice", label: "Invoice", type: "text" },
+  { key: "invoice_date", label: "Invoice Date", type: "date" },
   { key: "item", label: "Item", type: "text" },
   { key: "manufacturer", label: "Manufacturer", type: "text" },
   { key: "manufacturer_part", label: "Manufacturer Part", type: "text" },
   { key: "um", label: "UM", type: "text" },
-  { key: "description", label: "Description", type: "text" },
+  { key: "desc", label: "Description", type: "text" },
   { key: "unspsc", label: "UNSPSC", type: "text" },
   { key: "category", label: "Category", type: "text" },
   { key: "subcategory", label: "SubCategory", type: "text" },
@@ -37,28 +48,9 @@ const FIELD_DEFS = [
     step: "0.01",
   },
   { key: "qty", label: "Qty", type: "number", step: "0.01" },
-  {
-    key: "purchase_dollars_src",
-    label: "Purchase Dollars Src",
-    type: "number",
-    step: "0.01",
-  },
-  {
-    key: "purchase_dollars_calc",
-    label: "Purchase Dollars Calc",
-    type: "number",
-    step: "0.01",
-  },
-  {
-    key: "purchase_dollars_calc_comment",
-    label: "Purchase Dollars Calc Comment",
-    type: "text",
-  },
-  { key: "caf", label: "CAF %", type: "number", step: "0.0001" },
-  { key: "caf_dollars", label: "CAF Dollars", type: "number", step: "0.01" },
-  { key: "dq_status", label: "DQ Status", type: "select" },
-  { key: "dq_messages", label: "DQ Message", type: "text" },
 ];
+
+const FIELD_DEFS = [...REQUIRED_FIELDS, ...OPTIONAL_FIELDS];
 
 const emptyRow = () => ({
   customer_id: "",
@@ -68,42 +60,37 @@ const emptyRow = () => ({
   member_city: "",
   member_state: "",
   member_zip: "",
-  po: "",
-  invoice: "",
-  invoice_date: "",
   ship_to: "",
   ship_to_address: "",
   ship_to_city: "",
   ship_to_state: "",
   ship_to_zip: "",
+  purchase_dollars: "",
+  caf: "",
+  caf_dollars: "",
+  po: "",
+  invoice: "",
+  invoice_date: "",
   item: "",
   manufacturer: "",
   manufacturer_part: "",
   um: "",
-  description: "",
+  desc: "",
   unspsc: "",
   category: "",
   subcategory: "",
   retail_price: "",
   contract_price: "",
   qty: "",
-  purchase_dollars_src: "",
-  purchase_dollars_calc: "",
-  purchase_dollars_calc_comment: "",
-  caf: "",
-  caf_dollars: "",
-  dq_status: "passed",
-  dq_messages: "",
 });
 
 const numberFields = new Set([
+  "purchase_dollars",
+  "caf",
+  "caf_dollars",
   "retail_price",
   "contract_price",
   "qty",
-  "purchase_dollars_src",
-  "purchase_dollars_calc",
-  "caf",
-  "caf_dollars",
 ]);
 
 export default function ManualReportCreate() {
@@ -148,9 +135,8 @@ export default function ManualReportCreate() {
       const next = [...prev];
       next[index] = { ...next[index], [field]: value };
 
-      // auto-calc CAF dollars when purchase/caf changes
-      if (field === "purchase_dollars_calc" || field === "caf") {
-        const purchase = Number(next[index].purchase_dollars_calc || 0);
+      if (field === "purchase_dollars" || field === "caf") {
+        const purchase = Number(next[index].purchase_dollars || 0);
         const cafRate = Number(next[index].caf || 0);
         const calc = Math.round(purchase * cafRate * 100) / 100;
 
@@ -192,22 +178,22 @@ export default function ManualReportCreate() {
       const row = rows[i];
       const rowNo = i + 1;
 
-      if (!row.member_name.trim()) {
-        return `Row ${rowNo}: Member Name is required.`;
+      for (const field of REQUIRED_FIELDS) {
+        const value = row[field.key];
+        if (value === "" || value === null || value === undefined) {
+          return `Row ${rowNo}: ${field.label} is required.`;
+        }
       }
 
-      if (
-        row.purchase_dollars_calc === "" ||
-        Number.isNaN(Number(row.purchase_dollars_calc))
-      ) {
-        return `Row ${rowNo}: Purchase Dollars Calc must be a valid number.`;
+      if (Number.isNaN(Number(row.purchase_dollars))) {
+        return `Row ${rowNo}: Purchase Dollars must be a valid number.`;
       }
 
-      if (row.caf === "" || Number.isNaN(Number(row.caf))) {
+      if (Number.isNaN(Number(row.caf))) {
         return `Row ${rowNo}: CAF % must be a valid number.`;
       }
 
-      if (row.caf_dollars === "" || Number.isNaN(Number(row.caf_dollars))) {
+      if (Number.isNaN(Number(row.caf_dollars))) {
         return `Row ${rowNo}: CAF Dollars must be a valid number.`;
       }
     }
@@ -253,12 +239,15 @@ export default function ManualReportCreate() {
     try {
       setSaving(true);
 
-      await apiFetch(apiUrl("/reports/manual-create"), {
+      const result = await apiFetch(apiUrl("/reports/manual-create"), {
         method: "POST",
         body: JSON.stringify(payload),
       });
 
-      alert(`${form.report_type} report created successfully.`);
+      alert(
+        result?.message ||
+          `${form.report_type} report created and submitted for validation.`,
+      );
       navigate("/reports");
     } catch (err) {
       console.error("❌ Manual report create failed:", err);
@@ -267,6 +256,18 @@ export default function ManualReportCreate() {
       setSaving(false);
     }
   };
+
+  const renderCell = (row, index, field) => (
+    <td key={field.key} className="border px-2 py-2">
+      <input
+        type={field.type}
+        step={field.step}
+        value={row[field.key]}
+        onChange={(e) => handleRowChange(index, field.key, e.target.value)}
+        className="w-full border rounded px-2 py-1"
+      />
+    </td>
+  );
 
   return (
     <div className="p-6 space-y-6">
@@ -388,65 +389,72 @@ export default function ManualReportCreate() {
             </button>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="min-w-full border text-sm">
-              <thead className="bg-slate-100">
-                <tr>
-                  {FIELD_DEFS.map((field) => (
-                    <th key={field.key} className="border px-3 py-2">
-                      {field.label}
-                    </th>
-                  ))}
-                  <th className="border px-3 py-2">Action</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {rows.map((row, index) => (
-                  <tr key={index}>
-                    {FIELD_DEFS.map((field) => (
-                      <td key={field.key} className="border px-2 py-2">
-                        {field.type === "select" ? (
-                          <select
-                            value={row[field.key]}
-                            onChange={(e) =>
-                              handleRowChange(index, field.key, e.target.value)
-                            }
-                            className="w-full border rounded px-2 py-1"
-                          >
-                            <option value="passed">Passed</option>
-                            <option value="validated">Validated</option>
-                            <option value="failed">Failed</option>
-                            <option value="approved">Approved</option>
-                          </select>
-                        ) : (
-                          <input
-                            type={field.type}
-                            step={field.step}
-                            value={row[field.key]}
-                            onChange={(e) =>
-                              handleRowChange(index, field.key, e.target.value)
-                            }
-                            className="w-full border rounded px-2 py-1"
-                          />
-                        )}
-                      </td>
+          <div>
+            <h3 className="font-medium text-slate-700 mb-2">Required Fields</h3>
+            <div className="overflow-x-auto">
+              <table className="min-w-full border text-sm">
+                <thead className="bg-slate-100">
+                  <tr>
+                    {REQUIRED_FIELDS.map((field) => (
+                      <th key={field.key} className="border px-3 py-2">
+                        {field.label}
+                      </th>
                     ))}
-
-                    <td className="border px-2 py-2 text-center">
-                      <button
-                        type="button"
-                        onClick={() => removeRow(index)}
-                        className="text-red-600 hover:underline"
-                        disabled={rows.length === 1}
-                      >
-                        <Trash2 className="h-4 w-4 inline" />
-                      </button>
-                    </td>
+                    <th className="border px-3 py-2">Action</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+
+                <tbody>
+                  {rows.map((row, index) => (
+                    <tr key={`required-${index}`}>
+                      {REQUIRED_FIELDS.map((field) =>
+                        renderCell(row, index, field),
+                      )}
+
+                      <td className="border px-2 py-2 text-center">
+                        <button
+                          type="button"
+                          onClick={() => removeRow(index)}
+                          className="text-red-600 hover:underline"
+                          disabled={rows.length === 1}
+                        >
+                          <Trash2 className="h-4 w-4 inline" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div>
+            <h3 className="font-medium text-slate-700 mb-2">
+              Optional Reconciliation Fields
+            </h3>
+            <div className="overflow-x-auto">
+              <table className="min-w-full border text-sm">
+                <thead className="bg-slate-100">
+                  <tr>
+                    {OPTIONAL_FIELDS.map((field) => (
+                      <th key={field.key} className="border px-3 py-2">
+                        {field.label}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {rows.map((row, index) => (
+                    <tr key={`optional-${index}`}>
+                      {OPTIONAL_FIELDS.map((field) =>
+                        renderCell(row, index, field),
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
 
           {error && (
