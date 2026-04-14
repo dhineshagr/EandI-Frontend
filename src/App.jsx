@@ -23,6 +23,7 @@ import ManageUsers from "./pages/ManageUsers";
 import UserAuditLog from "./pages/UserAuditLog";
 import ReportAuditLog from "./pages/ReportAuditLog";
 import SspReportsDashboard from "./pages/SspReportsDashboard";
+import ManualReportCreate from "./pages/ManualReportCreate";
 
 /* ===============================
    Layout with Header (Auth only)
@@ -112,7 +113,14 @@ export default function App() {
               </ProtectedRoute>
             }
           />
-
+          <Route
+            path="/reports/manual-create"
+            element={
+              <ProtectedRoute requireInternal>
+                <ManualReportCreate />
+              </ProtectedRoute>
+            }
+          />
           <Route
             path="/ManageUsers"
             element={

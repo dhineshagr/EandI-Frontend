@@ -42,9 +42,7 @@ export default function Header() {
   const isBusinessPartner =
     String(user?.user_type || "").toLowerCase() === "bp";
 
-  const roleBadge = isBusinessPartner
-    ? "Supplier"
-    : user?.role || "Internal";
+  const roleBadge = isBusinessPartner ? "Supplier" : user?.role || "Internal";
 
   const displayName =
     user?.display_name || user?.username || user?.email || "User";
@@ -102,6 +100,14 @@ export default function Header() {
                   <Link to="/reports" className={isActive("/reports")}>
                     Reports
                   </Link>
+
+                  <Link
+                    to="/reports/manual-create"
+                    className={isActive("/reports/manual-create")}
+                  >
+                    Create Manual Report
+                  </Link>
+                  
                   <Link to="/ManageUsers" className={isActive("/ManageUsers")}>
                     Manage Users
                   </Link>
