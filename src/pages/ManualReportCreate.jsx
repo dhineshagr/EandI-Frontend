@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, Trash2, ArrowLeft } from "lucide-react";
+import { Plus, Trash2, ArrowLeft, AlertTriangle } from "lucide-react";
 
 import { apiFetch } from "../api/apiClient";
 import { apiUrl } from "../api/config";
@@ -108,6 +108,7 @@ export default function ManualReportCreate() {
   const [rows, setRows] = useState([emptyRow()]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [warnings, setWarnings] = useState([]);
 
   const title = useMemo(
     () =>
@@ -131,6 +132,8 @@ export default function ManualReportCreate() {
   };
 
   const handleRowChange = (index, field, value) => {
+    setError("");
+
     setRows((prev) => {
       const next = [...prev];
       next[index] = { ...next[index], [field]: value };
@@ -138,7 +141,7 @@ export default function ManualReportCreate() {
       if (field === "purchase_dollars" || field === "caf") {
         const purchase = Number(next[index].purchase_dollars || 0);
         const cafRate = Number(next[index].caf || 0);
-         const calc = Math.round(purchase * (cafRate / 100) * 100) / 100;
+        const calc = Math.round(purchase * (cafRate / 100) * 100) / 100;
 
         if (purchase && cafRate) {
           next[index].caf_dollars = String(calc);
@@ -160,9 +163,38 @@ export default function ManualReportCreate() {
     });
   };
 
-  const validate = () => {
+  const validateForWarnings = () => {
+    const warningList = [];
+
+    rows.forEach((row, index) => {
+      const rowNo = index + 1;
+
+      REQUIRED_FIELDS.forEach((field) => {
+        const value = row[field.key];
+        if (value === "" || value === null || value === undefined) {
+          warningList.push(`Row ${rowNo}: ${field.label} is missing.`);
+        }
+      });
+
+      ["purchase_dollars", "caf", "caf_dollars"].forEach((field) => {
+        const value = row[field];
+        if (
+          value !== "" &&
+          value !== null &&
+          value !== undefined &&
+          Number.isNaN(Number(value))
+        ) {
+          warningList.push(`Row ${rowNo}: ${field} must be a valid number.`);
+        }
+      });
+    });
+
+    return warningList;
+  };
+
+  const validateBlockingFields = () => {
     if (!form.period) return "Period is required.";
-    if (!form.bp_code.trim()) return "Supplier Code is required.";
+    if (!rows.length) return "At least one row is required.";
 
     if (
       form.report_type === "Return" &&
@@ -170,32 +202,6 @@ export default function ManualReportCreate() {
       Number.isNaN(Number(form.related_report_number))
     ) {
       return "Linked Accrual Report # must be a valid number.";
-    }
-
-    if (!rows.length) return "At least one row is required.";
-
-    for (let i = 0; i < rows.length; i += 1) {
-      const row = rows[i];
-      const rowNo = i + 1;
-
-      for (const field of REQUIRED_FIELDS) {
-        const value = row[field.key];
-        if (value === "" || value === null || value === undefined) {
-          return `Row ${rowNo}: ${field.label} is required.`;
-        }
-      }
-
-      if (Number.isNaN(Number(row.purchase_dollars))) {
-        return `Row ${rowNo}: Purchase Dollars must be a valid number.`;
-      }
-
-      if (Number.isNaN(Number(row.caf))) {
-        return `Row ${rowNo}: CAF % must be a valid number.`;
-      }
-
-      if (Number.isNaN(Number(row.caf_dollars))) {
-        return `Row ${rowNo}: CAF Dollars must be a valid number.`;
-      }
     }
 
     return "";
@@ -211,16 +217,31 @@ export default function ManualReportCreate() {
     e.preventDefault();
     setError("");
 
-    const validationError = validate();
-    if (validationError) {
-      setError(validationError);
+    const blockingError = validateBlockingFields();
+    if (blockingError) {
+      setError(blockingError);
       return;
+    }
+
+    const warningList = validateForWarnings();
+    setWarnings(warningList);
+
+    if (warningList.length > 0) {
+      const proceed = window.confirm(
+        `Validation warning:\n\n${warningList.slice(0, 10).join("\n")}\n\n${
+          warningList.length > 10
+            ? `...and ${warningList.length - 10} more issue(s).\n\n`
+            : ""
+        }This report can still be submitted. Do you want to continue?`,
+      );
+
+      if (!proceed) return;
     }
 
     const payload = {
       report_type: form.report_type,
       period: form.period,
-      bp_code: form.bp_code.trim(),
+      bp_code: form.bp_code.trim() || null,
       contract_id: form.contract_id.trim() || null,
       related_report_number:
         form.report_type === "Return" && form.related_report_number
@@ -388,6 +409,32 @@ export default function ManualReportCreate() {
               Add Row
             </button>
           </div>
+
+          {warnings.length > 0 && (
+            <div className="border border-red-200 bg-red-50 text-red-700 rounded-lg p-4 text-sm">
+              <div className="flex items-center gap-2 font-semibold mb-2">
+                <AlertTriangle className="h-4 w-4" />
+                {warnings.length} issue(s) found
+              </div>
+
+              <ul className="list-disc ml-6 space-y-1">
+                {warnings.slice(0, 8).map((warning, index) => (
+                  <li key={index}>{warning}</li>
+                ))}
+              </ul>
+
+              {warnings.length > 8 && (
+                <p className="mt-2 underline">
+                  {warnings.length - 8} more issue(s) not shown.
+                </p>
+              )}
+
+              <p className="mt-3 text-slate-600">
+                Note: This report can still be submitted. Validation issues will
+                be handled during processing.
+              </p>
+            </div>
+          )}
 
           <div>
             <h3 className="font-medium text-slate-700 mb-2">Required Fields</h3>
