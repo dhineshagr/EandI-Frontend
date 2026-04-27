@@ -1,31 +1,59 @@
 import React, { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, Trash2, ArrowLeft, AlertTriangle } from "lucide-react";
+import { Plus, Trash2, ArrowLeft, AlertTriangle, XCircle } from "lucide-react";
 
 import { apiFetch } from "../api/apiClient";
 import { apiUrl } from "../api/config";
 
 const REQUIRED_FIELDS = [
-  { key: "customer_id", label: "Customer ID", type: "text" },
-  { key: "member_number", label: "Member #", type: "text" },
-  { key: "member_name", label: "Member Name", type: "text" },
-  { key: "member_address", label: "Member Address", type: "text" },
-  { key: "member_city", label: "Member City", type: "text" },
-  { key: "member_state", label: "Member State", type: "text" },
-  { key: "member_zip", label: "Member Zip", type: "text" },
-  { key: "ship_to", label: "Ship To", type: "text" },
-  { key: "ship_to_address", label: "Ship To Address", type: "text" },
-  { key: "ship_to_city", label: "Ship To City", type: "text" },
-  { key: "ship_to_state", label: "Ship To State", type: "text" },
-  { key: "ship_to_zip", label: "Ship To Zip", type: "text" },
+  { key: "customer_id", label: "Customer ID", type: "text", required: true },
+  { key: "member_number", label: "Member #", type: "text", required: true },
+  { key: "member_name", label: "Member Name", type: "text", required: true },
+  {
+    key: "member_address",
+    label: "Member Address",
+    type: "text",
+    required: true,
+  },
+  { key: "member_city", label: "Member City", type: "text", required: true },
+  { key: "member_state", label: "Member State", type: "text", required: true },
+  { key: "member_zip", label: "Member Zip", type: "text", required: true },
+  { key: "ship_to", label: "Ship To", type: "text", required: true },
+  {
+    key: "ship_to_address",
+    label: "Ship To Address",
+    type: "text",
+    required: true,
+  },
+  { key: "ship_to_city", label: "Ship To City", type: "text", required: true },
+  {
+    key: "ship_to_state",
+    label: "Ship To State",
+    type: "text",
+    required: true,
+  },
+  { key: "ship_to_zip", label: "Ship To Zip", type: "text", required: true },
   {
     key: "purchase_dollars",
     label: "Purchase Dollars",
     type: "number",
     step: "0.01",
+    required: true,
   },
-  { key: "caf", label: "CAF %", type: "number", step: "0.0001" },
-  { key: "caf_dollars", label: "CAF Dollars", type: "number", step: "0.01" },
+  {
+    key: "caf",
+    label: "CAF %",
+    type: "number",
+    step: "0.0001",
+    required: true,
+  },
+  {
+    key: "caf_dollars",
+    label: "CAF Dollars",
+    type: "number",
+    step: "0.01",
+    required: true,
+  },
 ];
 
 const OPTIONAL_FIELDS = [
@@ -52,37 +80,11 @@ const OPTIONAL_FIELDS = [
 
 const FIELD_DEFS = [...REQUIRED_FIELDS, ...OPTIONAL_FIELDS];
 
-const emptyRow = () => ({
-  customer_id: "",
-  member_number: "",
-  member_name: "",
-  member_address: "",
-  member_city: "",
-  member_state: "",
-  member_zip: "",
-  ship_to: "",
-  ship_to_address: "",
-  ship_to_city: "",
-  ship_to_state: "",
-  ship_to_zip: "",
-  purchase_dollars: "",
-  caf: "",
-  caf_dollars: "",
-  po: "",
-  invoice: "",
-  invoice_date: "",
-  item: "",
-  manufacturer: "",
-  manufacturer_part: "",
-  um: "",
-  desc: "",
-  unspsc: "",
-  category: "",
-  subcategory: "",
-  retail_price: "",
-  contract_price: "",
-  qty: "",
-});
+const emptyRow = () =>
+  FIELD_DEFS.reduce((acc, field) => {
+    acc[field.key] = "";
+    return acc;
+  }, {});
 
 const numberFields = new Set([
   "purchase_dollars",
@@ -152,9 +154,7 @@ export default function ManualReportCreate() {
     });
   };
 
-  const addRow = () => {
-    setRows((prev) => [...prev, emptyRow()]);
-  };
+  const addRow = () => setRows((prev) => [...prev, emptyRow()]);
 
   const removeRow = (index) => {
     setRows((prev) => {
@@ -176,7 +176,7 @@ export default function ManualReportCreate() {
         }
       });
 
-      ["purchase_dollars", "caf", "caf_dollars"].forEach((field) => {
+      numberFields.forEach((field) => {
         const value = row[field];
         if (
           value !== "" &&
@@ -248,6 +248,9 @@ export default function ManualReportCreate() {
           ? Number(form.related_report_number)
           : null,
       note: form.note.trim() || "",
+      validation_warnings: warningList,
+      validation_error_details: warningList.join("\n"),
+      notification_from: "SSP Portal <ssp_notifications@eandi.org>",
       rows: rows.map((row) => {
         const out = {};
         for (const field of FIELD_DEFS) {
@@ -279,7 +282,7 @@ export default function ManualReportCreate() {
   };
 
   const renderCell = (row, index, field) => (
-    <td key={field.key} className="border px-2 py-2">
+    <td key={field.key} className="border px-2 py-2 min-w-[120px]">
       <input
         type={field.type}
         step={field.step}
@@ -302,7 +305,6 @@ export default function ManualReportCreate() {
         </button>
 
         <h1 className="text-2xl font-bold">{title}</h1>
-
         <div />
       </div>
 
@@ -430,83 +432,61 @@ export default function ManualReportCreate() {
               )}
 
               <p className="mt-3 text-slate-600">
-                Note: This report can still be submitted. Validation issues will
-                be handled during processing.
+                These details will be sent in the validation email from SSP
+                Portal.
               </p>
             </div>
           )}
 
-          <div>
-            <h3 className="font-medium text-slate-700 mb-2">Required Fields</h3>
-            <div className="overflow-x-auto">
-              <table className="min-w-full border text-sm">
-                <thead className="bg-slate-100">
-                  <tr>
-                    {REQUIRED_FIELDS.map((field) => (
-                      <th key={field.key} className="border px-3 py-2">
-                        {field.label}
-                      </th>
-                    ))}
-                    <th className="border px-3 py-2">Action</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {rows.map((row, index) => (
-                    <tr key={`required-${index}`}>
-                      {REQUIRED_FIELDS.map((field) =>
-                        renderCell(row, index, field),
-                      )}
-
-                      <td className="border px-2 py-2 text-center">
-                        <button
-                          type="button"
-                          onClick={() => removeRow(index)}
-                          className="text-red-600 hover:underline"
-                          disabled={rows.length === 1}
-                        >
-                          <Trash2 className="h-4 w-4 inline" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div>
-            <h3 className="font-medium text-slate-700 mb-2">
-              Optional Reconciliation Fields
-            </h3>
-            <div className="overflow-x-auto">
-              <table className="min-w-full border text-sm">
-                <thead className="bg-slate-100">
-                  <tr>
-                    {OPTIONAL_FIELDS.map((field) => (
-                      <th key={field.key} className="border px-3 py-2">
-                        {field.label}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {rows.map((row, index) => (
-                    <tr key={`optional-${index}`}>
-                      {OPTIONAL_FIELDS.map((field) =>
-                        renderCell(row, index, field),
-                      )}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
           {error && (
-            <div className="text-red-600 text-sm font-medium">{error}</div>
+            <div className="border border-red-300 bg-red-50 text-red-700 rounded-lg p-4 text-sm">
+              <div className="flex items-center gap-2 font-semibold">
+                <XCircle className="h-4 w-4" />
+                Error
+              </div>
+              <p className="mt-2">{error}</p>
+            </div>
           )}
+
+          <div className="overflow-x-auto">
+            <table className="min-w-full border text-sm">
+              <thead className="bg-slate-100">
+                <tr>
+                  {FIELD_DEFS.map((field) => (
+                    <th
+                      key={field.key}
+                      className="border px-3 py-2 whitespace-nowrap"
+                    >
+                      {field.label}
+                      {field.required && (
+                        <span className="text-red-500 ml-1">*</span>
+                      )}
+                    </th>
+                  ))}
+                  <th className="border px-3 py-2">Action</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {rows.map((row, index) => (
+                  <tr key={`manual-row-${index}`}>
+                    {FIELD_DEFS.map((field) => renderCell(row, index, field))}
+
+                    <td className="border px-2 py-2 text-center">
+                      <button
+                        type="button"
+                        onClick={() => removeRow(index)}
+                        className="text-red-600 hover:underline"
+                        disabled={rows.length === 1}
+                      >
+                        <Trash2 className="h-4 w-4 inline" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
 
           <div className="flex justify-end">
             <button
