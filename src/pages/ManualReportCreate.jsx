@@ -250,7 +250,6 @@ export default function ManualReportCreate() {
       note: form.note.trim() || "",
       validation_warnings: warningList,
       validation_error_details: warningList.join("\n"),
-      notification_from: "SSP Portal <ssp_notifications@eandi.org>",
       rows: rows.map((row) => {
         const out = {};
         for (const field of FIELD_DEFS) {
@@ -267,6 +266,21 @@ export default function ManualReportCreate() {
         method: "POST",
         body: JSON.stringify(payload),
       });
+
+      if (warningList.length > 0) {
+        try {
+          await apiFetch(apiUrl("/notify-accounting"), {
+            method: "POST",
+            body: JSON.stringify({
+              fileName: `Manual ${form.report_type} Report #${result?.report_number || ""}`,
+              uploadedBy: "Manual Report Submission",
+              errors: warningList,
+            }),
+          });
+        } catch (emailErr) {
+          console.warn("Manual report validation email failed:", emailErr);
+        }
+      }
 
       alert(
         result?.message ||
@@ -458,9 +472,6 @@ export default function ManualReportCreate() {
                       className="border px-3 py-2 whitespace-nowrap"
                     >
                       {field.label}
-                      {field.required && (
-                        <span className="text-red-500 ml-1">*</span>
-                      )}
                     </th>
                   ))}
                   <th className="border px-3 py-2">Action</th>
