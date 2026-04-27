@@ -6,6 +6,7 @@
 // ✅ ZERO_SALES should NOT open details page
 // ✅ ZERO_SALES should show "Zero Sales Submitted"
 // ✅ Added Period / Supplier / Contract columns
+// ✅ Added Linked Report # column
 
 import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
@@ -77,6 +78,7 @@ export default function ReportsDashboard() {
           rep.period,
           rep.bp_code,
           rep.contract_id,
+          rep.related_report_number,
           String(rep.report_number),
         ]
           .filter(Boolean)
@@ -153,7 +155,7 @@ export default function ReportsDashboard() {
       <div className="bg-white shadow p-4 rounded flex gap-4 items-center">
         <input
           type="text"
-          placeholder="Search by file, user, report #, period, supplier, or contract"
+          placeholder="Search by file, user, report #, linked report #, period, supplier, or contract"
           value={search}
           onChange={(e) => {
             setSearch(e.target.value);
@@ -170,6 +172,7 @@ export default function ReportsDashboard() {
             <tr>
               {[
                 { key: "report_number", label: "Report #" },
+                { key: "related_report_number", label: "Linked Report #" },
                 { key: "report_type", label: "Type" },
                 { key: "filename", label: "File" },
                 { key: "period", label: "Period" },
@@ -199,12 +202,10 @@ export default function ReportsDashboard() {
 
           <tbody>
             {processed.slice.map((rep) => {
-              // ✅ Normalize backend status once per row
               const rawStatus = String(rep.status ?? "")
                 .trim()
                 .toLowerCase();
 
-              // ✅ Detect zero sales by filename
               const isZeroSales =
                 String(rep.filename || "")
                   .trim()
@@ -214,54 +215,41 @@ export default function ReportsDashboard() {
                   .toUpperCase()
                   .startsWith("ZERO_SALES");
 
-              // Counts
               const passedCount = Number(rep.passed_count ?? 0);
               const failedCount = Number(rep.failed_count ?? 0);
               const approvedCount = Number(rep.approved_count ?? 0);
               const totalKnown = passedCount + failedCount + approvedCount;
 
-              // Treat these as backend "processing-like" statuses
               const processingLike = ["pending", "new", "staged", "submitted"];
 
-              // ✅ Derive final status from counts when backend is stuck in processing statuses
               const deriveStatusFromCounts = () => {
-                // Keep ZERO_SALES as submitted
                 if (isZeroSales) return rawStatus || "submitted";
-
-                // 1) Failed if any failed rows exist
                 if (failedCount > 0) return "failed";
-
-                // If we don't have any counts, keep backend status
                 if (totalKnown === 0) return rawStatus || "pending";
-
-                // 2) Approved if ALL rows are approved
                 if (approvedCount > 0 && approvedCount === totalKnown)
                   return "approved";
-
-                // 3) Passed if ALL rows are passed
                 if (passedCount > 0 && passedCount === totalKnown)
                   return "passed";
-
-                // 4) Processed but mixed (Passed + Approved, no failures) → show Passed
                 if (failedCount === 0 && passedCount + approvedCount > 0)
                   return "passed";
-
-                // fallback
                 return rawStatus || "pending";
               };
 
-              // Final status used for UI + action logic
               const status = processingLike.includes(rawStatus)
                 ? deriveStatusFromCounts()
                 : rawStatus;
 
-              // ✅ Disable details for processing reports and zero sales
               const isProcessing = processingLike.includes(status);
               const disableViewDetails = isProcessing || isZeroSales;
 
               return (
                 <tr key={rep.report_number} className="hover:bg-slate-50">
                   <td className="px-3 py-2 border">{rep.report_number}</td>
+
+                  <td className="px-3 py-2 border">
+                    {rep.related_report_number || "-"}
+                  </td>
+
                   <td className="px-3 py-2 border">{rep.report_type}</td>
 
                   <td className="px-3 py-2 border flex items-center gap-2">
@@ -369,7 +357,7 @@ export default function ReportsDashboard() {
 
             {processed.slice.length === 0 && (
               <tr>
-                <td colSpan="13" className="text-center py-4 text-slate-500">
+                <td colSpan="14" className="text-center py-4 text-slate-500">
                   No reports found
                 </td>
               </tr>

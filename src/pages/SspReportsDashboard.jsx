@@ -8,6 +8,7 @@
 // ✔ No hardcoded API URLs
 // ✔ All existing functionality preserved
 // ✔ Added Period / Supplier / Contract columns
+// ✔ Added Linked Report # column
 // ======================================================================
 
 import React, { useEffect, useState } from "react";
@@ -148,7 +149,7 @@ export default function SspReportsDashboard() {
       <div className="bg-white p-4 rounded shadow space-y-4">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <input
-            placeholder="Search by Report #, File, or Uploaded By"
+            placeholder="Search by Report #, Linked Report #, File, or Uploaded By"
             value={search}
             onChange={(e) => {
               setSearch(e.target.value);
@@ -224,6 +225,7 @@ export default function SspReportsDashboard() {
             <tr>
               {[
                 { key: "report_number", label: "Report #" },
+                { key: "related_report_number", label: "Linked Report #" },
                 { key: "report_type", label: "Type" },
                 { key: "file_name", label: "File" },
                 { key: "period", label: "Period" },
@@ -255,13 +257,13 @@ export default function SspReportsDashboard() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan="15" className="text-center py-4">
+                <td colSpan="16" className="text-center py-4">
                   Loading...
                 </td>
               </tr>
             ) : reports.length === 0 ? (
               <tr>
-                <td colSpan="15" className="text-center py-4 text-slate-500">
+                <td colSpan="16" className="text-center py-4 text-slate-500">
                   No reports found
                 </td>
               </tr>
@@ -280,6 +282,11 @@ export default function SspReportsDashboard() {
                 return (
                   <tr key={r.report_number} className="hover:bg-slate-50">
                     <td className="border px-3 py-2">{r.report_number}</td>
+
+                    <td className="border px-3 py-2">
+                      {r.related_report_number || "-"}
+                    </td>
+
                     <td className="border px-3 py-2">{r.report_type}</td>
                     <td className="border px-3 py-2">{r.file_name}</td>
                     <td className="border px-3 py-2">{r.period || ""}</td>
