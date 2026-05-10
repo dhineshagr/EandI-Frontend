@@ -392,7 +392,19 @@ export default function UploadDashboard() {
 
       // 1️⃣ Upload to Azure (always allow upload)
       if (!isZeroSales) {
-        uploadedUrl = await uploadToAzure(item.file, user, () => {});
+        setItems((prev) =>
+          prev.map((i) =>
+            i.id === item.id ? { ...i, status: "uploading", progress: 0 } : i,
+          ),
+        );
+
+        uploadedUrl = await uploadToAzure(item.file, user, (progress) => {
+          setItems((prev) =>
+            prev.map((i) =>
+              i.id === item.id ? { ...i, status: "uploading", progress } : i,
+            ),
+          );
+        });
       }
 
       // 2️⃣ Register upload in DB
@@ -408,20 +420,36 @@ export default function UploadDashboard() {
         }),
       });
 
+      if (!isZeroSales) {
+        setItems((prev) =>
+          prev.map((i) =>
+            i.id === item.id
+              ? { ...i, status: "processing", progress: 100 }
+              : i,
+          ),
+        );
+      }
       // 3️⃣ 🔔 SEND VALIDATION EMAIL (THIS WAS MISSING)
       if (item?.validation?.errors?.length > 0) {
         console.warn(
           "Validation issues found - Upload will continue and email will be sent",
         );
 
-        await apiFetch(apiUrl("/notify-accounting"), {
-          method: "POST",
-          body: JSON.stringify({
-            fileName: item.name,
-            uploadedBy: displayName,
-            errors: item.validation.errors,
-          }),
-        });
+        try {
+          await apiFetch(apiUrl("/notify-accounting"), {
+            method: "POST",
+            body: JSON.stringify({
+              fileName: item.name,
+              uploadedBy: displayName,
+              errors: item.validation.errors.slice(0, 200),
+            }),
+          });
+        } catch (emailErr) {
+          console.warn(
+            "Validation email failed, but upload completed:",
+            emailErr,
+          );
+        }
       }
 
       // 4️⃣ Refresh recent uploads
@@ -433,7 +461,9 @@ export default function UploadDashboard() {
         url: uploadedUrl,
       });
 
-      setItems([]);
+      setTimeout(() => {
+        setItems([]);
+      }, 3000);
 
       toast({
         title:
