@@ -564,7 +564,7 @@ export default function UploadDashboard() {
           {/* LEFT SIDE */}
           <div className="space-y-6">
             {/* Report-Level Fields */}
-            <div className="rounded-2xl border backdrop-blur bg-white/80 shadow-md">
+            <div className="relative z-50 rounded-2xl border backdrop-blur bg-white/80 shadow-md overflow-visible">
               <div className="p-5 border-b bg-gradient-to-r from-slate-50 to-transparent">
                 <h2 className="font-bold text-lg tracking-tight text-emerald-700">
                   Report Details
@@ -621,7 +621,7 @@ export default function UploadDashboard() {
                   {showSupplierOptions &&
                     userType !== "bp" &&
                     supplierOptions.length > 0 && (
-                      <div className="absolute z-20 mt-1 w-full bg-white border rounded shadow max-h-48 overflow-y-auto">
+                      <div className="absolute z-[9999] mt-1 w-full bg-white border rounded shadow-lg max-h-48 overflow-y-auto">
                         {supplierOptions.map((s) => (
                           <button
                             key={s.bp_code}
@@ -662,7 +662,7 @@ export default function UploadDashboard() {
                   />
 
                   {showContractOptions && contractOptions.length > 0 && (
-                    <div className="absolute z-20 mt-1 w-full bg-white border rounded shadow max-h-48 overflow-y-auto">
+                    <div className="absolute z-[9999] mt-1 w-full bg-white border rounded shadow-lg max-h-48 overflow-y-auto">
                       {contractOptions.map((c) => (
                         <button
                           key={c.contract_id}
@@ -686,7 +686,7 @@ export default function UploadDashboard() {
             </div>
 
             {/* Upload Card */}
-            <div className="rounded-2xl border backdrop-blur bg-white/80 shadow-md">
+            <div className="relative z-10 rounded-2xl border backdrop-blur bg-white/80 shadow-md">
               <div className="p-5 border-b bg-gradient-to-r from-slate-50 to-transparent">
                 <h2 className="font-bold text-lg tracking-tight text-emerald-700 flex items-center gap-2">
                   <Upload className="h-5 w-5" /> Upload Files
