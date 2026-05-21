@@ -176,10 +176,16 @@ export default function UploadDashboard() {
     userType === "internal" &&
     ["admin", "accounting", "ssp_admins"].includes(normalizedRole);
 
-  // ✅ New report-level fields
+  // ✅ Report-level fields
   const [period, setPeriod] = useState("");
   const [bpCode, setBpCode] = useState("");
   const [contractId, setContractId] = useState("");
+
+  // ✅ Supplier / Contract lookup state
+  const [supplierOptions, setSupplierOptions] = useState([]);
+  const [contractOptions, setContractOptions] = useState([]);
+  const [showSupplierOptions, setShowSupplierOptions] = useState(false);
+  const [showContractOptions, setShowContractOptions] = useState(false);
 
   // ✅ FIXED ENDPOINT
   const fetchUserProfile = async () => {
@@ -250,6 +256,55 @@ export default function UploadDashboard() {
 
     return blobClient.url;
   }
+
+  // =======================================================
+  // SUPPLIER / CONTRACT LOOKUP
+  // =======================================================
+  const searchSuppliers = async (value) => {
+    setBpCode(value);
+
+    if (!value || value.trim().length < 1) {
+      setSupplierOptions([]);
+      setShowSupplierOptions(false);
+      return;
+    }
+
+    try {
+      const data = await apiFetch(
+        apiUrl(`/uploads/lookups/suppliers?q=${encodeURIComponent(value)}`),
+      );
+
+      setSupplierOptions(data.items || []);
+      setShowSupplierOptions(true);
+    } catch (err) {
+      console.error("Supplier lookup failed:", err);
+      setSupplierOptions([]);
+      setShowSupplierOptions(false);
+    }
+  };
+
+  const searchContracts = async (value) => {
+    setContractId(value);
+
+    if (!value || value.trim().length < 1) {
+      setContractOptions([]);
+      setShowContractOptions(false);
+      return;
+    }
+
+    try {
+      const data = await apiFetch(
+        apiUrl(`/uploads/lookups/contracts?q=${encodeURIComponent(value)}`),
+      );
+
+      setContractOptions(data.items || []);
+      setShowContractOptions(true);
+    } catch (err) {
+      console.error("Contract lookup failed:", err);
+      setContractOptions([]);
+      setShowContractOptions(false);
+    }
+  };
 
   // =======================================================
   // FILE SELECTION HANDLER (FIX FOR BROWSE + DRAG/DROP)
@@ -429,6 +484,7 @@ export default function UploadDashboard() {
           ),
         );
       }
+
       // 3️⃣ 🔔 SEND VALIDATION EMAIL (THIS WAS MISSING)
       if (item?.validation?.errors?.length > 0) {
         console.warn(
@@ -532,39 +588,99 @@ export default function UploadDashboard() {
                   />
                 </div>
 
-                <div>
+                {/* ✅ Supplier Code Typeahead */}
+                <div className="relative">
                   <label className="block text-sm font-medium text-slate-700 mb-1">
                     Supplier Code
                   </label>
+
                   <input
                     type="text"
                     value={
                       userType === "bp" ? user?.bp_code || bpCode || "" : bpCode
                     }
-                    onChange={(e) => setBpCode(e.target.value)}
+                    onChange={(e) => searchSuppliers(e.target.value)}
+                    onFocus={() => {
+                      if (supplierOptions.length > 0)
+                        setShowSupplierOptions(true);
+                    }}
+                    onBlur={() => {
+                      setTimeout(() => setShowSupplierOptions(false), 200);
+                    }}
                     disabled={userType === "bp"}
                     placeholder={
                       userType === "bp"
                         ? "Auto-filled from login"
-                        : "Enter Supplier Code"
+                        : "Type Supplier Code"
                     }
                     className={`w-full border rounded px-3 py-2 ${
                       userType === "bp" ? "bg-slate-100 text-slate-500" : ""
                     }`}
                   />
+
+                  {showSupplierOptions &&
+                    userType !== "bp" &&
+                    supplierOptions.length > 0 && (
+                      <div className="absolute z-20 mt-1 w-full bg-white border rounded shadow max-h-48 overflow-y-auto">
+                        {supplierOptions.map((s) => (
+                          <button
+                            key={s.bp_code}
+                            type="button"
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              setBpCode(s.bp_code);
+                              setShowSupplierOptions(false);
+                            }}
+                            className="w-full text-left px-3 py-2 hover:bg-emerald-50 text-sm"
+                          >
+                            {s.bp_code}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                 </div>
 
-                <div>
+                {/* ✅ Contract ID Typeahead */}
+                <div className="relative">
                   <label className="block text-sm font-medium text-slate-700 mb-1">
                     Contract ID
                   </label>
+
                   <input
                     type="text"
                     value={contractId}
-                    onChange={(e) => setContractId(e.target.value)}
-                    placeholder="Enter Contract ID"
+                    onChange={(e) => searchContracts(e.target.value)}
+                    onFocus={() => {
+                      if (contractOptions.length > 0)
+                        setShowContractOptions(true);
+                    }}
+                    onBlur={() => {
+                      setTimeout(() => setShowContractOptions(false), 200);
+                    }}
+                    placeholder="Type Contract ID or Contract Name"
                     className="w-full border rounded px-3 py-2"
                   />
+
+                  {showContractOptions && contractOptions.length > 0 && (
+                    <div className="absolute z-20 mt-1 w-full bg-white border rounded shadow max-h-48 overflow-y-auto">
+                      {contractOptions.map((c) => (
+                        <button
+                          key={c.contract_id}
+                          type="button"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            setContractId(c.contract_id);
+                            setShowContractOptions(false);
+                          }}
+                          className="w-full text-left px-3 py-2 hover:bg-emerald-50 text-sm"
+                        >
+                          {c.contract_name
+                            ? `${c.contract_id} - ${c.contract_name}`
+                            : c.contract_id}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
