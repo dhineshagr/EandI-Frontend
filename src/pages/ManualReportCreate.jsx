@@ -112,6 +112,12 @@ export default function ManualReportCreate() {
   const [error, setError] = useState("");
   const [warnings, setWarnings] = useState([]);
 
+  // ✅ Supplier / Contract lookup state
+  const [supplierOptions, setSupplierOptions] = useState([]);
+  const [contractOptions, setContractOptions] = useState([]);
+  const [showSupplierOptions, setShowSupplierOptions] = useState(false);
+  const [showContractOptions, setShowContractOptions] = useState(false);
+
   const title = useMemo(
     () =>
       form.report_type === "Return"
@@ -131,6 +137,65 @@ export default function ManualReportCreate() {
       }
       return next;
     });
+  };
+
+  // =======================================================
+  // SUPPLIER / CONTRACT LOOKUP
+  // =======================================================
+  const searchSuppliers = async (value) => {
+    setError("");
+
+    setForm((prev) => ({
+      ...prev,
+      bp_code: value,
+    }));
+
+    if (!value || value.trim().length < 1) {
+      setSupplierOptions([]);
+      setShowSupplierOptions(false);
+      return;
+    }
+
+    try {
+      const data = await apiFetch(
+        apiUrl(`/uploads/lookups/suppliers?q=${encodeURIComponent(value)}`),
+      );
+
+      setSupplierOptions(data.items || []);
+      setShowSupplierOptions(true);
+    } catch (err) {
+      console.error("Supplier lookup failed:", err);
+      setSupplierOptions([]);
+      setShowSupplierOptions(false);
+    }
+  };
+
+  const searchContracts = async (value) => {
+    setError("");
+
+    setForm((prev) => ({
+      ...prev,
+      contract_id: value,
+    }));
+
+    if (!value || value.trim().length < 1) {
+      setContractOptions([]);
+      setShowContractOptions(false);
+      return;
+    }
+
+    try {
+      const data = await apiFetch(
+        apiUrl(`/uploads/lookups/contracts?q=${encodeURIComponent(value)}`),
+      );
+
+      setContractOptions(data.items || []);
+      setShowContractOptions(true);
+    } catch (err) {
+      console.error("Contract lookup failed:", err);
+      setContractOptions([]);
+      setShowContractOptions(false);
+    }
   };
 
   const handleRowChange = (index, field, value) => {
@@ -323,7 +388,7 @@ export default function ManualReportCreate() {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        <div className="bg-white shadow rounded-lg p-5 space-y-4">
+        <div className="relative z-50 bg-white shadow rounded-lg p-5 space-y-4 overflow-visible">
           <h2 className="text-lg font-semibold">Report Header</h2>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -353,7 +418,8 @@ export default function ManualReportCreate() {
               />
             </div>
 
-            <div>
+            {/* ✅ Supplier Code Typeahead */}
+            <div className="relative">
               <label className="block text-sm font-medium mb-1">
                 Supplier Code
               </label>
@@ -361,13 +427,44 @@ export default function ManualReportCreate() {
                 type="text"
                 name="bp_code"
                 value={form.bp_code}
-                onChange={handleHeaderChange}
-                placeholder="Enter Supplier Code"
+                onChange={(e) => searchSuppliers(e.target.value)}
+                onFocus={() => {
+                  if (supplierOptions.length > 0) {
+                    setShowSupplierOptions(true);
+                  }
+                }}
+                onBlur={() => {
+                  setTimeout(() => setShowSupplierOptions(false), 200);
+                }}
+                placeholder="Type Supplier Code"
                 className="w-full border rounded px-3 py-2"
               />
+
+              {showSupplierOptions && supplierOptions.length > 0 && (
+                <div className="absolute z-[9999] mt-1 w-full bg-white border rounded shadow-lg max-h-48 overflow-y-auto">
+                  {supplierOptions.map((s) => (
+                    <button
+                      key={s.bp_code}
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        setForm((prev) => ({
+                          ...prev,
+                          bp_code: s.bp_code,
+                        }));
+                        setShowSupplierOptions(false);
+                      }}
+                      className="w-full text-left px-3 py-2 hover:bg-emerald-50 text-sm"
+                    >
+                      {s.bp_code}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
-            <div>
+            {/* ✅ Contract ID Typeahead */}
+            <div className="relative">
               <label className="block text-sm font-medium mb-1">
                 Contract ID
               </label>
@@ -375,10 +472,42 @@ export default function ManualReportCreate() {
                 type="text"
                 name="contract_id"
                 value={form.contract_id}
-                onChange={handleHeaderChange}
-                placeholder="Enter Contract ID"
+                onChange={(e) => searchContracts(e.target.value)}
+                onFocus={() => {
+                  if (contractOptions.length > 0) {
+                    setShowContractOptions(true);
+                  }
+                }}
+                onBlur={() => {
+                  setTimeout(() => setShowContractOptions(false), 200);
+                }}
+                placeholder="Type Contract ID or Contract Name"
                 className="w-full border rounded px-3 py-2"
               />
+
+              {showContractOptions && contractOptions.length > 0 && (
+                <div className="absolute z-[9999] mt-1 w-full bg-white border rounded shadow-lg max-h-48 overflow-y-auto">
+                  {contractOptions.map((c) => (
+                    <button
+                      key={c.contract_id}
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        setForm((prev) => ({
+                          ...prev,
+                          contract_id: c.contract_id,
+                        }));
+                        setShowContractOptions(false);
+                      }}
+                      className="w-full text-left px-3 py-2 hover:bg-emerald-50 text-sm"
+                    >
+                      {c.contract_name
+                        ? `${c.contract_id} - ${c.contract_name}`
+                        : c.contract_id}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             {form.report_type === "Return" && (
@@ -413,7 +542,7 @@ export default function ManualReportCreate() {
           </div>
         </div>
 
-        <div className="bg-white shadow rounded-lg p-5 space-y-4">
+        <div className="relative z-10 bg-white shadow rounded-lg p-5 space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold">Manual Rows</h2>
             <button
