@@ -1,22 +1,39 @@
 // src/pages/UploadDashboard.jsx
 // ======================================================================
-// Excel Upload Dashboard – UPDATED FOR NEW ENHANCEMENTS
+// Excel Upload Dashboard
+// ----------------------------------------------------------------------
+// ✔ Responsive layout
+// ✔ Report Details displayed full width
+// ✔ Prevents Recent Uploads table from collapsing left-side cards
+// ✔ Multi-period selection
+// ✔ Locked-period validation
+// ✔ Supplier and Contract lookup
+// ✔ Azure Blob upload
+// ✔ Existing functionality preserved
 // ======================================================================
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+
 import { ContainerClient } from "@azure/storage-blob";
 import * as XLSX from "xlsx";
-import {
-  Upload,
-  FileSpreadsheet,
-  CloudUpload,
-  FileX,
-  Plus,
-  X,
-  LockKeyhole,
-} from "lucide-react";
-import { useNavigate } from "react-router-dom";
 
+import {
+  CloudUpload,
+  FileSpreadsheet,
+  FileX,
+  LockKeyhole,
+  Plus,
+  Upload,
+  X,
+} from "lucide-react";
+
+import { useNavigate } from "react-router-dom";
 import { useAccount } from "@azure/msal-react";
 
 import FilePreviewCard from "../components/upload/FilePreviewCard";
@@ -26,7 +43,7 @@ import { apiFetch } from "../api/apiClient";
 import { apiUrl } from "../api/config";
 
 /* ======================================================================
-   Toast helper
+   TOAST HELPER
 ====================================================================== */
 
 function useToast() {
@@ -42,52 +59,12 @@ function useToast() {
 }
 
 /* ======================================================================
-   Constants
+   CONSTANTS
 ====================================================================== */
 
 const MAX_FILE_SIZE_MB = 50;
 const ACCEPT = [".xlsx", ".xls", ".csv"];
 const SAS_URL = import.meta.env.VITE_AZURE_BLOB_SAS_URL;
-
-/* ======================================================================
-   Helpers
-====================================================================== */
-
-function bytesToMB(bytes) {
-  return bytes / 1024 / 1024;
-}
-
-function sanitize(name) {
-  return name.replace(/[^a-zA-Z0-9._-]/g, "_");
-}
-
-function nowIsoCompact() {
-  return new Date().toISOString().replace(/[:.]/g, "").slice(0, 15);
-}
-
-function buildBlobPath(file) {
-  const currentDate = new Date();
-
-  return `${currentDate.getFullYear()}/${(currentDate.getMonth() + 1)
-    .toString()
-    .padStart(2, "0")}/${currentDate
-    .getDate()
-    .toString()
-    .padStart(2, "0")}/${nowIsoCompact()}_${sanitize(file.name)}`;
-}
-
-function normalizeBoolean(value) {
-  return (
-    value === true ||
-    value === 1 ||
-    value === "1" ||
-    String(value).toLowerCase() === "true"
-  );
-}
-
-/* ======================================================================
-   Required fields
-====================================================================== */
 
 const REQUIRED_FIELDS = [
   "customer_id",
@@ -108,8 +85,41 @@ const REQUIRED_FIELDS = [
 ];
 
 /* ======================================================================
-   Empty row check
+   HELPERS
 ====================================================================== */
+
+function bytesToMB(bytes) {
+  return bytes / 1024 / 1024;
+}
+
+function sanitize(name) {
+  return name.replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
+function nowIsoCompact() {
+  return new Date().toISOString().replace(/[:.]/g, "").slice(0, 15);
+}
+
+function buildBlobPath(file) {
+  const currentDate = new Date();
+
+  const year = currentDate.getFullYear();
+
+  const month = String(currentDate.getMonth() + 1).padStart(2, "0");
+
+  const day = String(currentDate.getDate()).padStart(2, "0");
+
+  return `${year}/${month}/${day}/${nowIsoCompact()}_${sanitize(file.name)}`;
+}
+
+function normalizeBoolean(value) {
+  return (
+    value === true ||
+    value === 1 ||
+    value === "1" ||
+    String(value).toLowerCase() === "true"
+  );
+}
 
 function isEmptyRow(row) {
   const values = Object.values(row);
@@ -133,10 +143,6 @@ function isEmptyRow(row) {
   });
 }
 
-/* ======================================================================
-   Validate business rules
-====================================================================== */
-
 function validateBusinessRules(file, data, headers) {
   const errors = [];
 
@@ -159,6 +165,10 @@ function validateBusinessRules(file, data, headers) {
 
     const cafDollars = parseFloat(row.caf_dollars) || 0;
 
+    /*
+     * Existing uploaded templates store CAF as a decimal rate,
+     * for example 0.05 for 5%.
+     */
     const expected = Math.round(purchase * caf * 100) / 100;
 
     const rounded = Math.round(cafDollars * 100) / 100;
@@ -181,23 +191,31 @@ function validateBusinessRules(file, data, headers) {
 }
 
 /* ======================================================================
-   Main component
+   MAIN COMPONENT
 ====================================================================== */
 
 export default function UploadDashboard() {
   const { toast } = useToast();
   const navigate = useNavigate();
-
   const msalAccount = useAccount();
 
   /* --------------------------------------------------------------------
-     User state
+     USER STATE
   -------------------------------------------------------------------- */
 
   const [user, setUser] = useState(() => {
     const savedUser = localStorage.getItem("userProfile");
 
-    return savedUser ? JSON.parse(savedUser) : null;
+    if (!savedUser) {
+      return null;
+    }
+
+    try {
+      return JSON.parse(savedUser);
+    } catch {
+      localStorage.removeItem("userProfile");
+      return null;
+    }
   });
 
   const isMsalUser = Boolean(msalAccount);
@@ -211,7 +229,7 @@ export default function UploadDashboard() {
 
   const userType = isMsalUser
     ? "internal"
-    : user?.user_type?.toLowerCase() || "internal";
+    : String(user?.user_type || "internal").toLowerCase();
 
   let roleFromClaims;
 
@@ -235,7 +253,7 @@ export default function UploadDashboard() {
     ["admin", "accounting", "ssp_admins"].includes(normalizedRole);
 
   /* --------------------------------------------------------------------
-     Report-level fields
+     REPORT-LEVEL STATE
   -------------------------------------------------------------------- */
 
   const [reportType, setReportType] = useState("Report");
@@ -251,7 +269,7 @@ export default function UploadDashboard() {
   const [contractId, setContractId] = useState("");
 
   /* --------------------------------------------------------------------
-     Supplier and contract lookup state
+     LOOKUP STATE
   -------------------------------------------------------------------- */
 
   const [supplierOptions, setSupplierOptions] = useState([]);
@@ -265,7 +283,7 @@ export default function UploadDashboard() {
   const [contractsLoading, setContractsLoading] = useState(false);
 
   /* --------------------------------------------------------------------
-     Upload state
+     UPLOAD STATE
   -------------------------------------------------------------------- */
 
   const [recentUploads, setRecentUploads] = useState([]);
@@ -281,25 +299,33 @@ export default function UploadDashboard() {
   const inputRef = useRef(null);
 
   /* --------------------------------------------------------------------
-     Locked periods
+     LOCKED PERIODS
   -------------------------------------------------------------------- */
 
-  const lockedPeriodSet = new Set(
-    accountingPeriods
-      .filter((item) => normalizeBoolean(item?.is_locked))
-      .map((item) => String(item.period)),
+  const lockedPeriodSet = useMemo(
+    () =>
+      new Set(
+        accountingPeriods
+          .filter((item) => normalizeBoolean(item?.is_locked))
+          .map((item) => String(item.period)),
+      ),
+    [accountingPeriods],
   );
 
-  const lockedPeriods = accountingPeriods
-    .filter((item) => normalizeBoolean(item?.is_locked))
-    .map((item) => String(item.period))
-    .sort();
+  const lockedPeriods = useMemo(
+    () =>
+      accountingPeriods
+        .filter((item) => normalizeBoolean(item?.is_locked))
+        .map((item) => String(item.period))
+        .sort(),
+    [accountingPeriods],
+  );
 
   /* ====================================================================
-     Supplier contract lookup
+     CONTRACTS FOR SUPPLIER
   ==================================================================== */
 
-  const loadContractsForSupplier = async (supplierCode) => {
+  const loadContractsForSupplier = useCallback(async (supplierCode) => {
     const normalizedSupplierCode = String(supplierCode || "").trim();
 
     setContractId("");
@@ -314,20 +340,16 @@ export default function UploadDashboard() {
 
     try {
       const endpoint =
-        `/uploads/lookups/contracts` +
+        "/uploads/lookups/contracts" +
         `?bp_code=${encodeURIComponent(normalizedSupplierCode)}`;
 
       const data = await apiFetch(apiUrl(endpoint));
 
-      const contractItems = data.items || [];
+      const contractItems = Array.isArray(data?.items) ? data.items : [];
 
       setContractOptions(contractItems);
 
-      /*
-          Backend returns the newest active
-          contract as default_contract_id.
-        */
-      if (data.default_contract_id) {
+      if (data?.default_contract_id) {
         setContractId(String(data.default_contract_id));
       } else if (contractItems.length > 0) {
         setContractId(String(contractItems[0].contract_id));
@@ -340,13 +362,13 @@ export default function UploadDashboard() {
     } finally {
       setContractsLoading(false);
     }
-  };
+  }, []);
 
   /* ====================================================================
-     Fetch current user profile
+     FETCH USER PROFILE
   ==================================================================== */
 
-  const fetchUserProfile = async () => {
+  const fetchUserProfile = useCallback(async () => {
     try {
       const data = await apiFetch(apiUrl("/me"));
 
@@ -355,10 +377,6 @@ export default function UploadDashboard() {
 
         localStorage.setItem("userProfile", JSON.stringify(data.user));
 
-        /*
-            Supplier users automatically use
-            the supplier code from login.
-          */
         if (
           String(data.user?.user_type || "").toLowerCase() === "bp" &&
           data.user?.bp_code
@@ -375,40 +393,40 @@ export default function UploadDashboard() {
 
       navigate("/login");
     }
-  };
+  }, [loadContractsForSupplier, navigate]);
 
   /* ====================================================================
-     Fetch recent uploads
+     FETCH RECENT UPLOADS
   ==================================================================== */
 
-  const fetchRecentUploads = async () => {
+  const fetchRecentUploads = useCallback(async () => {
     try {
       const data = await apiFetch(apiUrl("/uploads/recent"));
 
-      setRecentUploads(data.items || []);
+      setRecentUploads(Array.isArray(data?.items) ? data.items : []);
     } catch (error) {
       console.error("Failed to fetch recent uploads:", error);
     }
-  };
+  }, []);
 
   /* ====================================================================
-     Fetch accounting periods
+     FETCH ACCOUNTING PERIODS
   ==================================================================== */
 
-  const fetchAccountingPeriods = async () => {
+  const fetchAccountingPeriods = useCallback(async () => {
     try {
       const data = await apiFetch(apiUrl("/uploads/periods"));
 
-      setAccountingPeriods(data.items || []);
+      setAccountingPeriods(Array.isArray(data?.items) ? data.items : []);
     } catch (error) {
       console.error("Failed to fetch accounting periods:", error);
 
       setAccountingPeriods([]);
     }
-  };
+  }, []);
 
   /* ====================================================================
-     Initial page loading
+     INITIAL LOAD
   ==================================================================== */
 
   useEffect(() => {
@@ -419,10 +437,10 @@ export default function UploadDashboard() {
     const interval = setInterval(fetchRecentUploads, 30000);
 
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchUserProfile, fetchRecentUploads, fetchAccountingPeriods]);
 
   /* ====================================================================
-     Azure upload
+     AZURE UPLOAD
   ==================================================================== */
 
   async function uploadToAzure(file, currentUser, onProgress) {
@@ -462,7 +480,7 @@ export default function UploadDashboard() {
   }
 
   /* ====================================================================
-     Multi-period selection
+     PERIOD HANDLERS
   ==================================================================== */
 
   const addSelectedPeriod = () => {
@@ -506,16 +524,12 @@ export default function UploadDashboard() {
   };
 
   /* ====================================================================
-     Supplier search
+     SUPPLIER SEARCH
   ==================================================================== */
 
   const searchSuppliers = async (value) => {
     setBpCode(value);
 
-    /*
-        Clear the previous contract whenever
-        the supplier field changes.
-      */
     setContractId("");
     setContractOptions([]);
     setShowContractOptions(false);
@@ -523,17 +537,16 @@ export default function UploadDashboard() {
     if (!value || value.trim().length < 1) {
       setSupplierOptions([]);
       setShowSupplierOptions(false);
-
       return;
     }
 
     try {
       const endpoint =
-        `/uploads/lookups/suppliers` + `?q=${encodeURIComponent(value)}`;
+        "/uploads/lookups/suppliers" + `?q=${encodeURIComponent(value)}`;
 
       const data = await apiFetch(apiUrl(endpoint));
 
-      setSupplierOptions(data.items || []);
+      setSupplierOptions(Array.isArray(data?.items) ? data.items : []);
 
       setShowSupplierOptions(true);
     } catch (error) {
@@ -543,10 +556,6 @@ export default function UploadDashboard() {
       setShowSupplierOptions(false);
     }
   };
-
-  /* ====================================================================
-     Select supplier
-  ==================================================================== */
 
   const selectSupplier = async (supplier) => {
     const selectedCode = String(supplier?.bp_code || "").trim();
@@ -558,7 +567,7 @@ export default function UploadDashboard() {
   };
 
   /* ====================================================================
-     Contract search
+     CONTRACT SEARCH
   ==================================================================== */
 
   const searchContracts = async (value) => {
@@ -570,19 +579,18 @@ export default function UploadDashboard() {
     if (!selectedSupplierCode) {
       setContractOptions([]);
       setShowContractOptions(false);
-
       return;
     }
 
     try {
       const endpoint =
-        `/uploads/lookups/contracts` +
+        "/uploads/lookups/contracts" +
         `?bp_code=${encodeURIComponent(selectedSupplierCode)}` +
         `&q=${encodeURIComponent(value || "")}`;
 
       const data = await apiFetch(apiUrl(endpoint));
 
-      setContractOptions(data.items || []);
+      setContractOptions(Array.isArray(data?.items) ? data.items : []);
 
       setShowContractOptions(true);
     } catch (error) {
@@ -594,7 +602,7 @@ export default function UploadDashboard() {
   };
 
   /* ====================================================================
-     File selection handler
+     FILE SELECTION
   ==================================================================== */
 
   const onFiles = useCallback(
@@ -608,13 +616,10 @@ export default function UploadDashboard() {
 
       const file = files[0];
 
-      /* --------------------------------------------------------------
-         Extension validation
-      -------------------------------------------------------------- */
+      const lastDotIndex = file.name.lastIndexOf(".");
 
-      const extension = file.name
-        .toLowerCase()
-        .slice(file.name.lastIndexOf("."));
+      const extension =
+        lastDotIndex >= 0 ? file.name.toLowerCase().slice(lastDotIndex) : "";
 
       if (!ACCEPT.includes(extension)) {
         toast({
@@ -625,10 +630,6 @@ export default function UploadDashboard() {
 
         return;
       }
-
-      /* --------------------------------------------------------------
-         File-size validation
-      -------------------------------------------------------------- */
 
       if (bytesToMB(file.size) > MAX_FILE_SIZE_MB) {
         toast({
@@ -716,10 +717,6 @@ export default function UploadDashboard() {
 
       reader.readAsArrayBuffer(file);
 
-      /*
-        Reset input so the same file
-        can be selected again.
-      */
       if (inputRef.current) {
         inputRef.current.value = "";
       }
@@ -728,7 +725,7 @@ export default function UploadDashboard() {
   );
 
   /* ====================================================================
-     Validate report-level selections
+     VALIDATE REPORT SELECTIONS
   ==================================================================== */
 
   const validateReportSelections = () => {
@@ -763,7 +760,7 @@ export default function UploadDashboard() {
   };
 
   /* ====================================================================
-     Start upload
+     START UPLOAD
   ==================================================================== */
 
   const startUpload = async (itemId, isZeroSales = false) => {
@@ -793,10 +790,6 @@ export default function UploadDashboard() {
         setIsSubmittingZeroSales(true);
       }
 
-      /* --------------------------------------------------------------
-         Upload file to Azure
-      -------------------------------------------------------------- */
-
       if (!isZeroSales) {
         setItems((previousItems) =>
           previousItems.map((currentItem) =>
@@ -825,10 +818,6 @@ export default function UploadDashboard() {
         });
       }
 
-      /* --------------------------------------------------------------
-         Register upload in database
-      -------------------------------------------------------------- */
-
       await apiFetch(apiUrl("/uploads/register"), {
         method: "POST",
 
@@ -839,15 +828,8 @@ export default function UploadDashboard() {
 
           note: isZeroSales ? "Zero Sales Declaration" : "",
 
-          /*
-              Maintain backward compatibility
-              with the existing period field.
-            */
           period: selectedPeriods[0] || null,
 
-          /*
-              New multi-period field.
-            */
           periods: selectedPeriods,
 
           bp_code: resolvedBpCode,
@@ -869,10 +851,6 @@ export default function UploadDashboard() {
           ),
         );
       }
-
-      /* --------------------------------------------------------------
-         Send validation email
-      -------------------------------------------------------------- */
 
       if (item?.validation?.errors?.length > 0) {
         console.warn(
@@ -899,15 +877,7 @@ export default function UploadDashboard() {
         }
       }
 
-      /* --------------------------------------------------------------
-         Refresh recent uploads
-      -------------------------------------------------------------- */
-
       await fetchRecentUploads();
-
-      /* --------------------------------------------------------------
-         Success UI
-      -------------------------------------------------------------- */
 
       setLastUploaded({
         name: isZeroSales ? "Zero Sales Declaration" : item.name,
@@ -956,269 +926,255 @@ export default function UploadDashboard() {
   ==================================================================== */
 
   return (
-    <div className="min-h-[100vh] bg-gradient-to-br from-emerald-50 via-sky-50 to-indigo-50">
-      {/* ================================================================
-          Header
-      ================================================================ */}
+    <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-sky-50 to-indigo-50">
+      {/* PAGE HEADER */}
+      <header className="bg-gradient-to-r from-indigo-600 to-emerald-600 px-4 py-5 text-white sm:px-6 lg:px-8">
+        <div className="mx-auto w-full max-w-[1600px]">
+          <h1 className="text-xl font-bold sm:text-2xl">
+            Excel Upload Dashboard
+          </h1>
 
-      <div className="bg-gradient-to-r from-indigo-600 to-emerald-600 px-6 py-6 text-white">
-        <h1 className="text-2xl font-bold">Excel Upload Dashboard</h1>
+          <p className="mt-1 text-sm text-white/85">
+            Logged in as: <strong>{displayName}</strong> ({roleText})
+          </p>
+        </div>
+      </header>
 
-        <p className="text-sm text-white/80">
-          Logged in as: <b>{displayName}</b> ({roleText})
-        </p>
-      </div>
+      <main className="mx-auto w-full max-w-[1600px] space-y-6 px-4 py-6 sm:px-6 lg:px-8">
+        {/* ==============================================================
+            REPORT DETAILS — FULL WIDTH
+        ============================================================== */}
+        <section className="relative z-30 overflow-visible rounded-2xl border border-slate-200 bg-white shadow-md">
+          <div className="border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white px-5 py-4">
+            <h2 className="text-lg font-bold tracking-tight text-emerald-700">
+              Report Details
+            </h2>
 
-      {/* ================================================================
-          Main body
-      ================================================================ */}
+            <p className="mt-1 text-sm text-slate-500">
+              Provide report-level details before uploading a report, accrual,
+              or Zero Sales Declaration.
+            </p>
+          </div>
 
-      <div className="mx-auto max-w-7xl space-y-6 px-6 py-8">
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[2fr_1.6fr]">
-          {/* ============================================================
-              Left side
-          ============================================================ */}
+          <div className="grid grid-cols-1 gap-5 p-5 sm:grid-cols-2 xl:grid-cols-4">
+            {/* UPLOAD TYPE */}
+            <div className="min-w-0">
+              <label className="mb-1 block text-sm font-medium text-slate-700">
+                Upload Type
+              </label>
 
-          <div className="space-y-6">
-            {/* ==========================================================
-                Report details
-            ========================================================== */}
+              <select
+                value={reportType}
+                onChange={(event) => setReportType(event.target.value)}
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+              >
+                <option value="Report">Report</option>
 
-            <div className="relative z-50 overflow-visible rounded-2xl border bg-white/80 shadow-md backdrop-blur">
-              <div className="border-b bg-gradient-to-r from-slate-50 to-transparent p-5">
-                <h2 className="text-lg font-bold tracking-tight text-emerald-700">
-                  Report Details
-                </h2>
+                <option value="Accrual">Accrual</option>
+              </select>
 
-                <p className="mt-1 text-sm text-slate-500">
-                  Provide report-level details before uploading a report,
-                  accrual, or Zero Sales Declaration.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 gap-4 p-5 md:grid-cols-2 xl:grid-cols-4">
-                {/* ======================================================
-                    Upload type
-                ====================================================== */}
-
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-slate-700">
-                    Upload Type
-                  </label>
-
-                  <select
-                    value={reportType}
-                    onChange={(event) => setReportType(event.target.value)}
-                    className="w-full rounded border bg-white px-3 py-2"
-                  >
-                    <option value="Report">Report</option>
-
-                    <option value="Accrual">Accrual</option>
-                  </select>
-
-                  <p className="mt-1 text-xs text-slate-500">
-                    Select whether the uploaded file is a standard report or an
-                    accrual.
-                  </p>
-                </div>
-
-                {/* ======================================================
-                    Multi-period selection
-                ====================================================== */}
-
-                <div>
-                  <label className="mb-1 block text-sm font-medium text-slate-700">
-                    Periods
-                  </label>
-
-                  <div className="flex gap-2">
-                    <input
-                      type="month"
-                      value={periodPicker}
-                      onChange={(event) => setPeriodPicker(event.target.value)}
-                      className="min-w-0 flex-1 rounded border px-3 py-2"
-                    />
-
-                    <button
-                      type="button"
-                      onClick={addSelectedPeriod}
-                      className="inline-flex items-center gap-1 rounded bg-emerald-600 px-3 py-2 font-medium text-white hover:bg-emerald-700"
-                    >
-                      <Plus className="h-4 w-4" />
-                      Add
-                    </button>
-                  </div>
-
-                  {selectedPeriods.length > 0 ? (
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {selectedPeriods.map((selectedPeriod) => (
-                        <span
-                          key={selectedPeriod}
-                          className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-800"
-                        >
-                          {selectedPeriod}
-
-                          <button
-                            type="button"
-                            onClick={() => removeSelectedPeriod(selectedPeriod)}
-                            className="rounded-full p-0.5 hover:bg-emerald-200"
-                            aria-label={`Remove ${selectedPeriod}`}
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="mt-1 text-xs text-slate-500">
-                      Add one or more months.
-                    </p>
-                  )}
-
-                  {lockedPeriods.length > 0 && (
-                    <div className="mt-2 flex items-start gap-1 rounded bg-slate-100 p-2 text-xs text-slate-600">
-                      <LockKeyhole className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-
-                      <span>Locked periods: {lockedPeriods.join(", ")}</span>
-                    </div>
-                  )}
-                </div>
-
-                {/* ======================================================
-                    Supplier
-                ====================================================== */}
-
-                <div className="relative">
-                  <label className="mb-1 block text-sm font-medium text-slate-700">
-                    Supplier
-                  </label>
-
-                  <input
-                    type="text"
-                    value={
-                      userType === "bp" ? user?.bp_code || bpCode || "" : bpCode
-                    }
-                    onChange={(event) => searchSuppliers(event.target.value)}
-                    onFocus={() => {
-                      if (supplierOptions.length > 0) {
-                        setShowSupplierOptions(true);
-                      }
-                    }}
-                    onBlur={() => {
-                      setTimeout(() => setShowSupplierOptions(false), 200);
-                    }}
-                    disabled={userType === "bp"}
-                    placeholder={
-                      userType === "bp"
-                        ? "Auto-filled from login"
-                        : "Type Supplier ID or Name"
-                    }
-                    className={`w-full rounded border px-3 py-2 ${
-                      userType === "bp" ? "bg-slate-100 text-slate-500" : ""
-                    }`}
-                  />
-
-                  {showSupplierOptions &&
-                    userType !== "bp" &&
-                    supplierOptions.length > 0 && (
-                      <div className="absolute z-[9999] mt-1 max-h-48 w-full overflow-y-auto rounded border bg-white shadow-lg">
-                        {supplierOptions.map((supplier) => (
-                          <button
-                            key={supplier.bp_code}
-                            type="button"
-                            onMouseDown={(event) => event.preventDefault()}
-                            onClick={() => selectSupplier(supplier)}
-                            className="w-full px-3 py-2 text-left text-sm hover:bg-emerald-50"
-                          >
-                            {supplier.display_name || supplier.bp_code}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                </div>
-
-                {/* ======================================================
-                    Contract
-                ====================================================== */}
-
-                <div className="relative">
-                  <label className="mb-1 block text-sm font-medium text-slate-700">
-                    Contract ID
-                  </label>
-
-                  <input
-                    type="text"
-                    value={contractId}
-                    onChange={(event) => searchContracts(event.target.value)}
-                    onFocus={() => {
-                      if (contractOptions.length > 0) {
-                        setShowContractOptions(true);
-                      }
-                    }}
-                    onBlur={() => {
-                      setTimeout(() => setShowContractOptions(false), 200);
-                    }}
-                    disabled={!bpCode || contractsLoading}
-                    placeholder={
-                      contractsLoading
-                        ? "Loading contracts..."
-                        : bpCode
-                          ? "Type Contract ID"
-                          : "Select Supplier first"
-                    }
-                    className={`w-full rounded border px-3 py-2 ${
-                      !bpCode || contractsLoading
-                        ? "bg-slate-100 text-slate-500"
-                        : ""
-                    }`}
-                  />
-
-                  {showContractOptions && contractOptions.length > 0 && (
-                    <div className="absolute z-[9999] mt-1 max-h-48 w-full overflow-y-auto rounded border bg-white shadow-lg">
-                      {contractOptions.map((contract) => (
-                        <button
-                          key={contract.contract_id}
-                          type="button"
-                          onMouseDown={(event) => event.preventDefault()}
-                          onClick={() => {
-                            setContractId(String(contract.contract_id));
-
-                            setShowContractOptions(false);
-                          }}
-                          className="w-full px-3 py-2 text-left text-sm hover:bg-emerald-50"
-                        >
-                          <span className="font-medium">
-                            {contract.contract_id}
-                          </span>
-
-                          {contract.is_default && (
-                            <span className="ml-2 rounded bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700">
-                              Newest
-                            </span>
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-
-                  {bpCode &&
-                    !contractsLoading &&
-                    contractOptions.length === 0 &&
-                    !contractId && (
-                      <p className="mt-1 text-xs text-amber-600">
-                        No active contracts were found for this supplier.
-                      </p>
-                    )}
-                </div>
-              </div>
+              <p className="mt-1.5 text-xs leading-5 text-slate-500">
+                Select whether the uploaded file is a standard report or an
+                accrual.
+              </p>
             </div>
 
-            {/* ==========================================================
-                Upload card
-            ========================================================== */}
+            {/* MULTI-PERIOD */}
+            <div className="min-w-0">
+              <label className="mb-1 block text-sm font-medium text-slate-700">
+                Period(s)
+                <span className="ml-1 text-red-500">*</span>
+              </label>
 
-            <div className="relative z-10 rounded-2xl border bg-white/80 shadow-md backdrop-blur">
-              <div className="border-b bg-gradient-to-r from-slate-50 to-transparent p-5">
+              <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
+                <input
+                  type="month"
+                  value={periodPicker}
+                  onChange={(event) => setPeriodPicker(event.target.value)}
+                  className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2.5 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                />
+
+                <button
+                  type="button"
+                  onClick={addSelectedPeriod}
+                  className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2.5 font-medium text-white hover:bg-emerald-700"
+                >
+                  <Plus className="h-4 w-4" />
+                  Add
+                </button>
+              </div>
+
+              {selectedPeriods.length > 0 ? (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {selectedPeriods.map((selectedPeriod) => (
+                    <span
+                      key={selectedPeriod}
+                      className="inline-flex max-w-full items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-800"
+                    >
+                      <span className="truncate">{selectedPeriod}</span>
+
+                      <button
+                        type="button"
+                        onClick={() => removeSelectedPeriod(selectedPeriod)}
+                        className="shrink-0 rounded-full p-0.5 hover:bg-emerald-200"
+                        aria-label={`Remove ${selectedPeriod}`}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-1.5 text-xs text-slate-500">
+                  Select and add one or more months.
+                </p>
+              )}
+
+              {lockedPeriods.length > 0 && (
+                <div className="mt-2 flex items-start gap-1.5 rounded-lg bg-slate-100 p-2 text-xs text-slate-600">
+                  <LockKeyhole className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+
+                  <span className="min-w-0 break-words">
+                    Locked periods: {lockedPeriods.join(", ")}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* SUPPLIER */}
+            <div className="relative min-w-0">
+              <label className="mb-1 block text-sm font-medium text-slate-700">
+                Supplier
+              </label>
+
+              <input
+                type="text"
+                value={
+                  userType === "bp" ? user?.bp_code || bpCode || "" : bpCode
+                }
+                onChange={(event) => searchSuppliers(event.target.value)}
+                onFocus={() => {
+                  if (supplierOptions.length > 0) {
+                    setShowSupplierOptions(true);
+                  }
+                }}
+                onBlur={() => {
+                  setTimeout(() => setShowSupplierOptions(false), 200);
+                }}
+                disabled={userType === "bp"}
+                placeholder={
+                  userType === "bp"
+                    ? "Auto-filled from login"
+                    : "Type Supplier ID or Name"
+                }
+                className={`w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 ${
+                  userType === "bp"
+                    ? "cursor-not-allowed bg-slate-100 text-slate-500"
+                    : "bg-white"
+                }`}
+              />
+
+              {showSupplierOptions &&
+                userType !== "bp" &&
+                supplierOptions.length > 0 && (
+                  <div className="absolute left-0 right-0 z-[9999] mt-1 max-h-56 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-xl">
+                    {supplierOptions.map((supplier) => (
+                      <button
+                        key={supplier.bp_code}
+                        type="button"
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => selectSupplier(supplier)}
+                        className="block w-full px-3 py-2.5 text-left text-sm hover:bg-emerald-50"
+                      >
+                        {supplier.display_name || supplier.bp_code}
+                      </button>
+                    ))}
+                  </div>
+                )}
+            </div>
+
+            {/* CONTRACT */}
+            <div className="relative min-w-0">
+              <label className="mb-1 block text-sm font-medium text-slate-700">
+                Contract ID
+              </label>
+
+              <input
+                type="text"
+                value={contractId}
+                onChange={(event) => searchContracts(event.target.value)}
+                onFocus={() => {
+                  if (contractOptions.length > 0) {
+                    setShowContractOptions(true);
+                  }
+                }}
+                onBlur={() => {
+                  setTimeout(() => setShowContractOptions(false), 200);
+                }}
+                disabled={!bpCode || contractsLoading}
+                placeholder={
+                  contractsLoading
+                    ? "Loading contracts..."
+                    : bpCode
+                      ? "Type Contract ID"
+                      : "Select Supplier first"
+                }
+                className={`w-full rounded-lg border border-slate-300 px-3 py-2.5 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 ${
+                  !bpCode || contractsLoading
+                    ? "cursor-not-allowed bg-slate-100 text-slate-500"
+                    : "bg-white"
+                }`}
+              />
+
+              {showContractOptions && contractOptions.length > 0 && (
+                <div className="absolute left-0 right-0 z-[9999] mt-1 max-h-56 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-xl">
+                  {contractOptions.map((contract) => (
+                    <button
+                      key={contract.contract_id}
+                      type="button"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => {
+                        setContractId(String(contract.contract_id));
+
+                        setShowContractOptions(false);
+                      }}
+                      className="block w-full px-3 py-2.5 text-left text-sm hover:bg-emerald-50"
+                    >
+                      <span className="font-medium">
+                        {contract.contract_id}
+                      </span>
+
+                      {contract.is_default && (
+                        <span className="ml-2 rounded bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700">
+                          Newest
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {bpCode &&
+                !contractsLoading &&
+                contractOptions.length === 0 &&
+                !contractId && (
+                  <p className="mt-1.5 text-xs text-amber-600">
+                    No active contracts were found for this supplier.
+                  </p>
+                )}
+            </div>
+          </div>
+        </section>
+
+        {/* ==============================================================
+            LOWER RESPONSIVE GRID
+        ============================================================== */}
+        <div className="grid min-w-0 grid-cols-1 gap-6 xl:grid-cols-[minmax(320px,0.8fr)_minmax(0,2.2fr)]">
+          {/* LEFT COLUMN */}
+          <div className="min-w-0 space-y-6">
+            {/* UPLOAD CARD */}
+            <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-md">
+              <div className="border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white px-5 py-4">
                 <h2 className="flex items-center gap-2 text-lg font-bold tracking-tight text-emerald-700">
                   <Upload className="h-5 w-5" />
                   Upload Files
@@ -1233,7 +1189,6 @@ export default function UploadDashboard() {
                 <div
                   onDragOver={(event) => {
                     event.preventDefault();
-
                     setDragOver(true);
                   }}
                   onDragLeave={() => setDragOver(false)}
@@ -1244,10 +1199,10 @@ export default function UploadDashboard() {
 
                     onFiles(event.dataTransfer.files);
                   }}
-                  className={`rounded-2xl border-2 border-dashed p-10 text-center transition ${
+                  className={`rounded-2xl border-2 border-dashed px-4 py-10 text-center transition sm:px-8 ${
                     dragOver
-                      ? "border-emerald-500 bg-emerald-50/70 shadow-inner"
-                      : "border-slate-300 hover:border-emerald-300"
+                      ? "border-emerald-500 bg-emerald-50 shadow-inner"
+                      : "border-slate-300 bg-slate-50/40 hover:border-emerald-300 hover:bg-emerald-50/30"
                   }`}
                 >
                   <div className="flex flex-col items-center gap-3">
@@ -1255,40 +1210,38 @@ export default function UploadDashboard() {
 
                     <p className="text-sm text-slate-500">Drop file here, or</p>
 
-                    <div className="flex gap-3">
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
-                        onClick={() => inputRef.current?.click()}
-                        disabled={disabled}
-                      >
-                        <CloudUpload className="h-4 w-4" />
-                        Browse…
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => inputRef.current?.click()}
+                      disabled={disabled}
+                      className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <CloudUpload className="h-4 w-4" />
+                      Browse…
+                    </button>
+
+                    <p className="text-xs text-slate-400">
+                      Excel or CSV, maximum {MAX_FILE_SIZE_MB} MB
+                    </p>
 
                     <input
                       ref={inputRef}
                       type="file"
                       accept={ACCEPT.join(",")}
-                      multiple
                       className="hidden"
                       onChange={(event) => onFiles(event.target.files)}
                     />
                   </div>
                 </div>
               </div>
-            </div>
+            </section>
 
-            {/* ==========================================================
-                Zero Sales
-            ========================================================== */}
-
+            {/* ZERO SALES */}
             <button
               type="button"
               onClick={() => startUpload(null, true)}
               disabled={isSubmittingZeroSales}
-              className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-4 py-2 font-semibold text-white shadow hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-60"
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 px-4 py-3 font-semibold text-white shadow hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <FileX className="h-4 w-4" />
 
@@ -1297,16 +1250,13 @@ export default function UploadDashboard() {
                 : "Submit Zero Sales Declaration"}
             </button>
 
-            {/* ==========================================================
-                Last upload
-            ========================================================== */}
-
+            {/* LAST UPLOAD */}
             {lastUploaded && (
-              <div className="flex items-center justify-between rounded-2xl border border-emerald-300 bg-emerald-50 p-4 text-emerald-800 shadow">
-                <div>
+              <div className="flex min-w-0 flex-col gap-3 rounded-2xl border border-emerald-300 bg-emerald-50 p-4 text-emerald-800 shadow sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
                   <p className="font-semibold">Upload successful</p>
 
-                  <p className="text-sm">{lastUploaded.name}</p>
+                  <p className="truncate text-sm">{lastUploaded.name}</p>
                 </div>
 
                 {lastUploaded.url && (
@@ -1314,7 +1264,7 @@ export default function UploadDashboard() {
                     href={lastUploaded.url}
                     target="_blank"
                     rel="noreferrer"
-                    className="text-sm text-emerald-700 underline"
+                    className="shrink-0 text-sm text-emerald-700 underline"
                   >
                     View in Azure
                   </a>
@@ -1322,31 +1272,27 @@ export default function UploadDashboard() {
               </div>
             )}
 
-            {/* ==========================================================
-                Preview card
-            ========================================================== */}
-
+            {/* PREVIEW */}
             {items.length > 0 && (
-              <FilePreviewCard
-                item={items[0]}
-                onUpload={() => startUpload(items[0].id)}
-                disabled={disabled}
-                userType={userType}
-                canViewValidationDetails={canViewValidationDetails}
-                userGroups={user?.groups || user?.roles || []}
-              />
+              <div className="min-w-0 overflow-hidden">
+                <FilePreviewCard
+                  item={items[0]}
+                  onUpload={() => startUpload(items[0].id)}
+                  disabled={disabled}
+                  userType={userType}
+                  canViewValidationDetails={canViewValidationDetails}
+                  userGroups={user?.groups || user?.roles || []}
+                />
+              </div>
             )}
           </div>
 
-          {/* ============================================================
-              Right side
-          ============================================================ */}
-
-          <div className="space-y-6">
+          {/* RIGHT COLUMN */}
+          <div className="min-w-0 overflow-hidden">
             <RecentUploadsCard uploads={recentUploads} />
           </div>
         </div>
-      </div>
+      </main>
     </div>
   );
 }
