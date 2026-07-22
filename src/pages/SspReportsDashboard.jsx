@@ -6,12 +6,15 @@
 // ✔ No bearer tokens
 // ✔ Uses apiFetch() with secure session cookies
 // ✔ No hardcoded API URLs
-// ✔ All existing functionality preserved
-// ✔ Added Period / Supplier / Contract columns
-// ✔ Added Linked Report # column
+// ✔ Multi-period display support
+// ✔ Friendly report type display: Members -> Report
+// ✔ Zero Sales display and action handling
+// ✔ Period / Supplier / Contract columns
+// ✔ Linked Report # column
+// ✔ Existing filters, sorting, export, download, and pagination preserved
 // ======================================================================
 
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
 
@@ -21,6 +24,9 @@ import { apiUrl } from "../api/config";
 export default function SspReportsDashboard() {
   const navigate = useNavigate();
 
+  // -------------------------------------------------------------------
+  // STATE
+  // -------------------------------------------------------------------
   const [reports, setReports] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -44,7 +50,124 @@ export default function SspReportsDashboard() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
 
-  const fetchReports = async () => {
+  // ======================================================================
+  // HELPERS
+  // ======================================================================
+
+  /**
+   * Detect Zero Sales records based on the filename.
+   */
+  const isZeroSalesReport = (report) =>
+    String(report?.file_name || report?.filename || "")
+      .trim()
+      .toUpperCase()
+      .startsWith("ZERO_SALES");
+
+  /**
+   * Convert internal report type values into user-friendly labels.
+   *
+   * Database:
+   * Members
+   * Accrual
+   * Return
+   *
+   * UI:
+   * Report
+   * Accrual
+   * Return
+   * Zero Sales
+   */
+  const getReportTypeDisplay = (report) => {
+    if (isZeroSalesReport(report)) {
+      return "Zero Sales";
+    }
+
+    const reportType = String(report?.report_type || "").trim();
+
+    if (reportType.toLowerCase() === "members") {
+      return "Report";
+    }
+
+    return reportType || "-";
+  };
+
+  /**
+   * Return all periods for a report.
+   *
+   * New records:
+   * report.periods = ["2026-04", "2026-05"]
+   *
+   * Older records:
+   * report.period = "2026-04"
+   */
+  const getReportPeriods = (report) => {
+    if (Array.isArray(report?.periods) && report.periods.length > 0) {
+      return report.periods
+        .map((period) => String(period || "").trim())
+        .filter(Boolean);
+    }
+
+    if (report?.period) {
+      return String(report.period)
+        .split(",")
+        .map((period) => period.trim())
+        .filter(Boolean);
+    }
+
+    return [];
+  };
+
+  /**
+   * Display selected periods as a comma-separated value.
+   */
+  const getPeriodDisplay = (report) => {
+    const periods = getReportPeriods(report);
+    return periods.length > 0 ? periods.join(", ") : "-";
+  };
+
+  /**
+   * Format currency values.
+   */
+  const formatMoney = (value) =>
+    Number(value || 0).toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+
+  /**
+   * Format date safely.
+   */
+  const formatDate = (value) => {
+    if (!value) return "-";
+
+    try {
+      const date = new Date(value);
+
+      if (Number.isNaN(date.getTime())) {
+        return "-";
+      }
+
+      return format(date, "MM/dd/yyyy HH:mm");
+    } catch {
+      return "-";
+    }
+  };
+
+  /**
+   * Escape a value for CSV output.
+   */
+  const escapeCsvValue = (value) => {
+    const text = String(value ?? "")
+      .replace(/"/g, '""')
+      .replace(/\r?\n/g, " ");
+
+    return `"${text}"`;
+  };
+
+  // ======================================================================
+  // FETCH REPORTS
+  // ======================================================================
+  const fetchReports = useCallback(async () => {
     try {
       setLoading(true);
 
@@ -58,14 +181,14 @@ export default function SspReportsDashboard() {
         member: filters.member,
         sort: sort.field,
         order: sort.order,
-        page,
-        limit: pageSize,
+        page: String(page),
+        limit: String(pageSize),
       });
 
       const data = await apiFetch(apiUrl(`/ssp/reports?${params.toString()}`));
 
-      setReports(data.reports || []);
-      setTotal(data.total || 0);
+      setReports(Array.isArray(data.reports) ? data.reports : []);
+      setTotal(Number(data.total || 0));
     } catch (err) {
       console.error("❌ fetchReports error:", err);
       setReports([]);
@@ -73,83 +196,210 @@ export default function SspReportsDashboard() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [
+    search,
+    filters.dateType,
+    filters.startDate,
+    filters.endDate,
+    filters.supplier,
+    filters.contract,
+    filters.member,
+    sort.field,
+    sort.order,
+    page,
+    pageSize,
+  ]);
 
   useEffect(() => {
     fetchReports();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, filters, sort, page, pageSize]);
+  }, [fetchReports]);
 
+  // ======================================================================
+  // FILTER HANDLERS
+  // ======================================================================
   const handleFilterChange = (e) => {
     const { name, value } = e.target;
-    setFilters((p) => ({ ...p, [name]: value }));
+
+    setFilters((previous) => ({
+      ...previous,
+      [name]: value,
+    }));
+
     setPage(1);
   };
 
+  const clearFilters = () => {
+    setSearch("");
+
+    setFilters({
+      dateType: "Uploaded_At_Utc",
+      startDate: "",
+      endDate: "",
+      supplier: "",
+      contract: "",
+      member: "",
+    });
+
+    setPage(1);
+  };
+
+  // ======================================================================
+  // SORTING
+  // ======================================================================
   const handleSort = (field) => {
-    setSort((prev) => ({
+    setPage(1);
+
+    setSort((previous) => ({
       field,
-      order: prev.field === field && prev.order === "asc" ? "desc" : "asc",
+      order:
+        previous.field === field && previous.order === "asc" ? "desc" : "asc",
     }));
   };
 
+  const renderSortIcon = (field) => {
+    if (sort.field !== field) return null;
+
+    return (
+      <span className="ml-1 text-xs">{sort.order === "asc" ? "▲" : "▼"}</span>
+    );
+  };
+
+  // ======================================================================
+  // EXPORT SUMMARY CSV
+  // ======================================================================
   const handleExportSummary = () => {
     if (!reports.length) return;
 
-    const headers = Object.keys(reports[0]).join(",");
-    const rows = reports.map((r) =>
-      Object.values(r)
-        .map((v) => `"${v ?? ""}"`)
-        .join(","),
-    );
+    const headers = [
+      "Report Number",
+      "Linked Report Number",
+      "Type",
+      "File",
+      "Periods",
+      "Supplier",
+      "Contract",
+      "Uploaded By",
+      "Uploaded At",
+      "Status",
+      "Passed Count",
+      "Failed Count",
+      "Approved Count",
+      "Total Purchase",
+      "Total CAF",
+    ];
 
-    const csv = [headers, ...rows].join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
+    const csvRows = reports.map((report) => [
+      report.report_number,
+      report.related_report_number || "",
+      getReportTypeDisplay(report),
+      report.file_name || "",
+      getPeriodDisplay(report),
+      report.bp_code || "",
+      report.contract_id || "",
+      report.uploaded_by_display ||
+        report.uploaded_by_name ||
+        report.uploaded_by ||
+        "System",
+      formatDate(report.uploaded_at_utc),
+      report.report_status || "",
+      report.passed_count ?? 0,
+      report.failed_count ?? 0,
+      report.approved_count ?? 0,
+      Number(report.total_purchase || 0).toFixed(2),
+      Number(report.total_caf || 0).toFixed(2),
+    ]);
 
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `ssp_reports_summary_${Date.now()}.csv`;
-    a.click();
+    const csv = [
+      headers.map(escapeCsvValue).join(","),
+      ...csvRows.map((row) => row.map(escapeCsvValue).join(",")),
+    ].join("\n");
+
+    const blob = new Blob([csv], {
+      type: "text/csv;charset=utf-8;",
+    });
+
+    const objectUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+
+    anchor.href = objectUrl;
+    anchor.download = `ssp_reports_summary_${Date.now()}.csv`;
+
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+
+    URL.revokeObjectURL(objectUrl);
   };
 
+  // ======================================================================
+  // DOWNLOAD REPORT DETAIL CSV
+  // ======================================================================
   const handleDownloadDetail = async (reportNumber) => {
     try {
-      const res = await fetch(apiUrl(`/ssp/reports/${reportNumber}/download`), {
-        credentials: "include",
-      });
+      const response = await fetch(
+        apiUrl(`/ssp/reports/${reportNumber}/download`),
+        {
+          credentials: "include",
+        },
+      );
 
-      if (!res.ok) throw new Error(`Download failed ${res.status}`);
+      if (!response.ok) {
+        throw new Error(`Download failed with status ${response.status}`);
+      }
 
-      const blob = await res.blob();
-      const a = document.createElement("a");
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
 
-      a.href = URL.createObjectURL(blob);
-      a.download = `vrf_report_${reportNumber}.csv`;
-      a.click();
+      anchor.href = objectUrl;
+      anchor.download = `vrf_report_${reportNumber}.csv`;
+
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+
+      URL.revokeObjectURL(objectUrl);
     } catch (err) {
       console.error("❌ VRF download error:", err);
       alert("❌ Failed to download VRF CSV.");
     }
   };
 
+  // ======================================================================
+  // PAGINATION
+  // ======================================================================
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
   const start = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const end = Math.min(page * pageSize, total);
 
-  const formatMoney = (value) =>
-    Number(value || 0).toLocaleString(undefined, {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
+  // Correct the page if the current page becomes invalid after filtering.
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
 
+  // ======================================================================
+  // UI
+  // ======================================================================
   return (
     <div className="p-6 space-y-6">
-      <h1 className="text-2xl font-bold">SSP Reports Dashboard</h1>
+      {/* PAGE HEADER */}
+      <div>
+        <h1 className="text-2xl font-bold">SSP Reports Dashboard</h1>
 
+        <p className="mt-1 text-slate-600">
+          Search, review, export, and download processed SSP reports.
+        </p>
+      </div>
+
+      {/* FILTERS */}
       <div className="bg-white p-4 rounded shadow space-y-4">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <input
-            placeholder="Search by Report #, Linked Report #, File, or Uploaded By"
+            type="text"
+            placeholder="Search by Report #, Linked Report #, File, Period, Supplier, Contract, or Uploaded By"
             value={search}
             onChange={(e) => {
               setSearch(e.target.value);
@@ -185,8 +435,10 @@ export default function SspReportsDashboard() {
           />
 
           <button
+            type="button"
             onClick={handleExportSummary}
-            className="bg-emerald-600 text-white px-4 py-2 rounded hover:bg-emerald-700"
+            disabled={loading || reports.length === 0}
+            className="bg-emerald-600 text-white px-4 py-2 rounded hover:bg-emerald-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
           >
             Export Summary CSV
           </button>
@@ -194,14 +446,16 @@ export default function SspReportsDashboard() {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <input
+            type="text"
             name="supplier"
             value={filters.supplier}
             onChange={handleFilterChange}
-            placeholder="Filter by Supplier (Supplier Code)"
+            placeholder="Filter by Supplier Code"
             className="border p-2 rounded"
           />
 
           <input
+            type="text"
             name="contract"
             value={filters.contract}
             onChange={handleFilterChange}
@@ -210,45 +464,95 @@ export default function SspReportsDashboard() {
           />
 
           <input
+            type="text"
             name="member"
             value={filters.member}
             onChange={handleFilterChange}
-            placeholder="Filter by Member # / Name"
+            placeholder="Filter by Member # or Name"
             className="border p-2 rounded"
           />
         </div>
+
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="border border-slate-300 px-4 py-2 rounded hover:bg-slate-100"
+          >
+            Clear Filters
+          </button>
+        </div>
       </div>
 
+      {/* REPORT TABLE */}
       <div className="bg-white shadow rounded overflow-x-auto">
         <table className="min-w-full border text-sm">
           <thead className="bg-slate-100">
             <tr>
               {[
                 { key: "report_number", label: "Report #" },
-                { key: "related_report_number", label: "Linked Report #" },
+                {
+                  key: "related_report_number",
+                  label: "Linked Report #",
+                },
                 { key: "report_type", label: "Type" },
                 { key: "file_name", label: "File" },
-                { key: "period", label: "Period" },
+                { key: "period", label: "Period(s)" },
                 { key: "bp_code", label: "Supplier" },
                 { key: "contract_id", label: "Contract" },
-                { key: "uploaded_by_display", label: "Uploaded By" },
-                { key: "uploaded_at_utc", label: "Uploaded At" },
-                { key: "report_status", label: "Status" },
-                { key: "passed_count", label: "Passed" },
-                { key: "failed_count", label: "Failed" },
-                { key: "approved_count", label: "Approved" },
-                { key: "total_purchase", label: "Total Purchase $" },
-                { key: "total_caf", label: "Total CAF $" },
-                { key: "actions", label: "Actions", noSort: true },
-              ].map((col) => (
+                {
+                  key: "uploaded_by_display",
+                  label: "Uploaded By",
+                },
+                {
+                  key: "uploaded_at_utc",
+                  label: "Uploaded At",
+                },
+                {
+                  key: "report_status",
+                  label: "Status",
+                },
+                {
+                  key: "passed_count",
+                  label: "Passed",
+                },
+                {
+                  key: "failed_count",
+                  label: "Failed",
+                },
+                {
+                  key: "approved_count",
+                  label: "Approved",
+                },
+                {
+                  key: "total_purchase",
+                  label: "Total Purchase $",
+                },
+                {
+                  key: "total_caf",
+                  label: "Total CAF $",
+                },
+                {
+                  key: "actions",
+                  label: "Actions",
+                  noSort: true,
+                },
+              ].map((column) => (
                 <th
-                  key={col.key}
-                  onClick={col.noSort ? undefined : () => handleSort(col.key)}
-                  className={`px-3 py-2 border ${
-                    col.noSort ? "" : "cursor-pointer"
+                  key={column.key}
+                  onClick={
+                    column.noSort ? undefined : () => handleSort(column.key)
+                  }
+                  className={`px-3 py-2 border whitespace-nowrap ${
+                    column.noSort
+                      ? ""
+                      : "cursor-pointer select-none hover:bg-slate-200"
                   }`}
                 >
-                  {col.label}
+                  <span className="inline-flex items-center">
+                    {column.label}
+                    {!column.noSort && renderSortIcon(column.key)}
+                  </span>
                 </th>
               ))}
             </tr>
@@ -257,21 +561,25 @@ export default function SspReportsDashboard() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan="16" className="text-center py-4">
-                  Loading...
+                <td colSpan={16} className="text-center py-6 text-slate-500">
+                  Loading reports...
                 </td>
               </tr>
             ) : reports.length === 0 ? (
               <tr>
-                <td colSpan="16" className="text-center py-4 text-slate-500">
+                <td colSpan={16} className="text-center py-6 text-slate-500">
                   No reports found
                 </td>
               </tr>
             ) : (
-              reports.map((r) => {
-                const status = String(r.report_status || "").toLowerCase();
+              reports.map((report) => {
+                const status = String(report.report_status || "")
+                  .trim()
+                  .toLowerCase();
 
-                const actionsDisabled = [
+                const isZeroSales = isZeroSalesReport(report);
+
+                const isProcessing = [
                   "submitted",
                   "pending",
                   "processing",
@@ -279,93 +587,130 @@ export default function SspReportsDashboard() {
                   "staged",
                 ].includes(status);
 
+                // Zero Sales reports have no detail rows.
+                const disableViewDetails = isProcessing || isZeroSales;
+
+                // VRF download is unavailable while processing and for Zero Sales.
+                const disableDownload = isProcessing || isZeroSales;
+
                 return (
-                  <tr key={r.report_number} className="hover:bg-slate-50">
-                    <td className="border px-3 py-2">{r.report_number}</td>
+                  <tr key={report.report_number} className="hover:bg-slate-50">
+                    <td className="border px-3 py-2">{report.report_number}</td>
 
                     <td className="border px-3 py-2">
-                      {r.related_report_number || "-"}
+                      {report.related_report_number || "-"}
                     </td>
 
-                    <td className="border px-3 py-2">{r.report_type}</td>
-                    <td className="border px-3 py-2">{r.file_name}</td>
-                    <td className="border px-3 py-2">{r.period || ""}</td>
-                    <td className="border px-3 py-2">{r.bp_code || ""}</td>
-                    <td className="border px-3 py-2">{r.contract_id || ""}</td>
+                    <td className="border px-3 py-2">
+                      {getReportTypeDisplay(report)}
+                    </td>
 
                     <td className="border px-3 py-2">
-                      {r.uploaded_by_display ||
-                        r.uploaded_by_name ||
-                        r.uploaded_by ||
+                      {report.file_name || "-"}
+                    </td>
+
+                    <td className="border px-3 py-2">
+                      <div
+                        className="max-w-xs whitespace-normal"
+                        title={getPeriodDisplay(report)}
+                      >
+                        {getPeriodDisplay(report)}
+                      </div>
+                    </td>
+
+                    <td className="border px-3 py-2">
+                      {report.bp_code || "-"}
+                    </td>
+
+                    <td className="border px-3 py-2">
+                      {report.contract_id || "-"}
+                    </td>
+
+                    <td className="border px-3 py-2">
+                      {report.uploaded_by_display ||
+                        report.uploaded_by_name ||
+                        report.uploaded_by ||
                         "System"}
                     </td>
 
-                    <td className="border px-3 py-2">
-                      {r.uploaded_at_utc
-                        ? format(
-                            new Date(r.uploaded_at_utc),
-                            "MM/dd/yyyy HH:mm",
-                          )
-                        : ""}
+                    <td className="border px-3 py-2 whitespace-nowrap">
+                      {formatDate(report.uploaded_at_utc)}
                     </td>
 
-                    <td className="border px-3 py-2 capitalize">{status}</td>
+                    <td className="border px-3 py-2 capitalize">
+                      {status || "submitted"}
+                    </td>
 
                     <td className="border px-3 py-2 text-center">
-                      {r.passed_count ?? 0}
-                    </td>
-                    <td className="border px-3 py-2 text-center">
-                      {r.failed_count ?? 0}
-                    </td>
-                    <td className="border px-3 py-2 text-center">
-                      {r.approved_count ?? 0}
+                      {report.passed_count ?? 0}
                     </td>
 
-                    <td className="border px-3 py-2 text-right">
-                      {formatMoney(r.total_purchase)}
-                    </td>
-                    <td className="border px-3 py-2 text-right">
-                      {formatMoney(r.total_caf)}
+                    <td className="border px-3 py-2 text-center">
+                      {report.failed_count ?? 0}
                     </td>
 
-                    <td className="border px-3 py-2">
+                    <td className="border px-3 py-2 text-center">
+                      {report.approved_count ?? 0}
+                    </td>
+
+                    <td className="border px-3 py-2 text-right whitespace-nowrap">
+                      {formatMoney(report.total_purchase)}
+                    </td>
+
+                    <td className="border px-3 py-2 text-right whitespace-nowrap">
+                      {formatMoney(report.total_caf)}
+                    </td>
+
+                    <td className="border px-3 py-2 whitespace-nowrap">
                       <button
+                        type="button"
                         onClick={() => {
-                          if (actionsDisabled) return;
-                          navigate(`/reports/${r.report_number}`);
+                          if (disableViewDetails) return;
+
+                          navigate(`/reports/${report.report_number}`);
                         }}
-                        disabled={actionsDisabled}
+                        disabled={disableViewDetails}
                         className={
-                          actionsDisabled
+                          disableViewDetails
                             ? "text-gray-400 cursor-not-allowed text-xs"
                             : "text-blue-600 text-xs underline"
                         }
                         title={
-                          actionsDisabled
-                            ? "Report is not ready yet."
-                            : "View report details"
+                          isZeroSales
+                            ? "Zero Sales declaration has no detail rows."
+                            : isProcessing
+                              ? "Report is not ready yet."
+                              : "View report details"
                         }
                       >
-                        View Details
+                        {isZeroSales
+                          ? "Zero Sales Submitted"
+                          : isProcessing
+                            ? "Processing..."
+                            : "View Details"}
                       </button>
 
                       <br />
 
                       <button
+                        type="button"
                         onClick={() => {
-                          if (actionsDisabled) return;
-                          handleDownloadDetail(r.report_number);
+                          if (disableDownload) return;
+
+                          handleDownloadDetail(report.report_number);
                         }}
-                        disabled={actionsDisabled}
+                        disabled={disableDownload}
                         className={
-                          actionsDisabled
+                          disableDownload
                             ? "text-gray-400 cursor-not-allowed text-xs"
                             : "text-emerald-600 text-xs underline"
                         }
                         title={
-                          actionsDisabled
-                            ? "Report is not ready yet."
-                            : "Download VRF CSV"
+                          isZeroSales
+                            ? "Zero Sales declaration has no VRF detail rows."
+                            : isProcessing
+                              ? "Report is not ready yet."
+                              : "Download VRF CSV"
                         }
                       >
                         Download VRF CSV
@@ -379,15 +724,38 @@ export default function SspReportsDashboard() {
         </table>
       </div>
 
-      <div className="flex justify-between items-center mt-4">
-        <span className="text-sm text-gray-600">
-          {total === 0 ? "0–0 of 0" : `${start}–${end} of ${total}`}
-        </span>
+      {/* PAGINATION */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center mt-4">
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-gray-600">
+            {total === 0 ? "0–0 of 0" : `${start}–${end} of ${total}`}
+          </span>
 
-        <div className="flex gap-2">
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-600">Rows per page:</span>
+
+            <select
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value));
+                setPage(1);
+              }}
+              className="border p-1 rounded"
+            >
+              {[10, 25, 50, 100].map((size) => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="flex gap-2 items-center">
           <button
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page === 1}
+            type="button"
+            onClick={() => setPage((previous) => Math.max(1, previous - 1))}
+            disabled={page === 1 || loading}
             className="px-3 py-1 border rounded disabled:opacity-50"
           >
             Prev
@@ -398,8 +766,11 @@ export default function SspReportsDashboard() {
           </span>
 
           <button
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            disabled={page >= totalPages}
+            type="button"
+            onClick={() =>
+              setPage((previous) => Math.min(totalPages, previous + 1))
+            }
+            disabled={page >= totalPages || loading}
             className="px-3 py-1 border rounded disabled:opacity-50"
           >
             Next
