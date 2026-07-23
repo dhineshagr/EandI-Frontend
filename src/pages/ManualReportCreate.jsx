@@ -3,12 +3,12 @@
 // Manual Report / Adjustment / Return Creation
 // ----------------------------------------------------------------------
 // Report
-//   - User selects periods, supplier, and contract.
+//   - User selects open accounting periods, supplier, and contract.
 //   - User manually enters detail rows.
 //   - Linked report is not required.
 //
 // Adjustment
-//   - User selects periods, supplier, and contract.
+//   - User selects open accounting periods, supplier, and contract.
 //   - User manually enters detail rows.
 //   - Linked original report is required.
 //
@@ -19,21 +19,32 @@
 //   - Backend copies approved rows from Cur_Invoice_Detail.
 //   - Backend reverses Purchase_Dollars_Calc and CAF_Dollars.
 //
-// Common functionality
+// Accounting period freeze:
+//   - Loads open/closed periods from /reports/accounting-periods.
+//   - Closed periods cannot be added for Report or Adjustment.
+//   - Previously selected periods are revalidated before submission.
+//   - Backend validation must also be implemented.
+//
+// Common functionality:
 //   - Uses session-based apiFetch().
 //   - No hardcoded backend URLs.
 //   - Missing detail fields create warnings but do not block submission.
 // ======================================================================
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+
 import { useNavigate } from "react-router-dom";
 
 import {
   AlertTriangle,
   ArrowLeft,
   CalendarPlus,
+  CheckCircle2,
   Info,
+  Loader2,
+  LockKeyhole,
   Plus,
+  RefreshCw,
   Trash2,
   X,
   XCircle,
@@ -60,6 +71,31 @@ const REPORT_TYPES = [
     label: "Return",
   },
 ];
+
+// ======================================================================
+// ACCOUNTING PERIOD STATUS
+// ======================================================================
+
+const PERIOD_STATUS = {
+  OPEN: "open",
+  CLOSED: "closed",
+};
+
+const normalizePeriodStatus = (value) => {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+
+  if (
+    normalized === "closed" ||
+    normalized === "frozen" ||
+    normalized === "locked"
+  ) {
+    return PERIOD_STATUS.CLOSED;
+  }
+
+  return PERIOD_STATUS.OPEN;
+};
 
 // ======================================================================
 // FIELD DEFINITIONS
@@ -296,6 +332,50 @@ const isPositiveInteger = (value) => {
   return Number.isInteger(numberValue) && numberValue > 0;
 };
 
+const normalizePeriodRecords = (data) => {
+  const rawPeriods = Array.isArray(data?.periods)
+    ? data.periods
+    : Array.isArray(data?.items)
+      ? data.items
+      : Array.isArray(data)
+        ? data
+        : [];
+
+  return rawPeriods
+    .map((item) => {
+      if (typeof item === "string") {
+        return {
+          period: String(item).trim(),
+          status: PERIOD_STATUS.OPEN,
+          reason: "",
+          closed_by: null,
+          closed_at_utc: null,
+        };
+      }
+
+      const period = String(
+        item?.period ?? item?.accounting_period ?? item?.month ?? "",
+      ).trim();
+
+      if (!period) {
+        return null;
+      }
+
+      return {
+        period,
+        status: normalizePeriodStatus(
+          item?.status ?? item?.period_status ?? item?.is_closed,
+        ),
+        reason: String(
+          item?.reason ?? item?.close_reason ?? item?.note ?? "",
+        ).trim(),
+        closed_by: item?.closed_by ?? null,
+        closed_at_utc: item?.closed_at_utc ?? null,
+      };
+    })
+    .filter(Boolean);
+};
+
 // ======================================================================
 // COMPONENT
 // ======================================================================
@@ -304,7 +384,7 @@ export default function ManualReportCreate() {
   const navigate = useNavigate();
 
   // ====================================================================
-  // STATE
+  // FORM STATE
   // ====================================================================
 
   const [form, setForm] = useState({
@@ -321,15 +401,33 @@ export default function ManualReportCreate() {
   const [rows, setRows] = useState([emptyRow()]);
 
   const [saving, setSaving] = useState(false);
+
   const [error, setError] = useState("");
+
   const [warnings, setWarnings] = useState([]);
 
-  // Supplier lookup
+  // ====================================================================
+  // ACCOUNTING PERIOD STATE
+  // ====================================================================
+
+  const [accountingPeriods, setAccountingPeriods] = useState([]);
+
+  const [periodsLoading, setPeriodsLoading] = useState(false);
+
+  const [periodsLoadError, setPeriodsLoadError] = useState("");
+
+  // ====================================================================
+  // SUPPLIER LOOKUP
+  // ====================================================================
+
   const [supplierOptions, setSupplierOptions] = useState([]);
 
   const [showSupplierOptions, setShowSupplierOptions] = useState(false);
 
-  // Contract lookup
+  // ====================================================================
+  // CONTRACT LOOKUP
+  // ====================================================================
+
   const [contractOptions, setContractOptions] = useState([]);
 
   const [showContractOptions, setShowContractOptions] = useState(false);
@@ -368,6 +466,77 @@ export default function ManualReportCreate() {
     ? "Enter approved Accrual report #"
     : "Enter original report #";
 
+  const periodStatusMap = useMemo(() => {
+    const map = new Map();
+
+    accountingPeriods.forEach((item) => {
+      map.set(item.period, item);
+    });
+
+    return map;
+  }, [accountingPeriods]);
+
+  const selectedPeriodRecord = periodInput
+    ? periodStatusMap.get(periodInput)
+    : null;
+
+  const selectedPeriodIsClosed =
+    selectedPeriodRecord?.status === PERIOD_STATUS.CLOSED;
+
+  const closedSelectedPeriods = useMemo(
+    () =>
+      form.periods.filter(
+        (selectedPeriod) =>
+          periodStatusMap.get(selectedPeriod)?.status === PERIOD_STATUS.CLOSED,
+      ),
+    [form.periods, periodStatusMap],
+  );
+
+  const openPeriodCount = useMemo(
+    () =>
+      accountingPeriods.filter((item) => item.status === PERIOD_STATUS.OPEN)
+        .length,
+    [accountingPeriods],
+  );
+
+  const closedPeriodCount = useMemo(
+    () =>
+      accountingPeriods.filter((item) => item.status === PERIOD_STATUS.CLOSED)
+        .length,
+    [accountingPeriods],
+  );
+
+  // ====================================================================
+  // LOAD ACCOUNTING PERIOD STATUS
+  // ====================================================================
+
+  const loadAccountingPeriods = async () => {
+    setPeriodsLoading(true);
+    setPeriodsLoadError("");
+
+    try {
+      const data = await apiFetch(apiUrl("/reports/accounting-periods"));
+
+      const normalizedPeriods = normalizePeriodRecords(data);
+
+      setAccountingPeriods(normalizedPeriods);
+    } catch (loadError) {
+      console.error("Accounting period lookup failed:", loadError);
+
+      setAccountingPeriods([]);
+
+      setPeriodsLoadError(
+        loadError?.message || "Unable to load accounting period status.",
+      );
+    } finally {
+      setPeriodsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadAccountingPeriods();
+  }, []);
+
   // ====================================================================
   // HEADER HANDLERS
   // ====================================================================
@@ -393,9 +562,8 @@ export default function ManualReportCreate() {
         }
 
         /*
-         * Return inherits these values from the linked Accrual.
-         * Clear previously entered values so they are not displayed
-         * as though they will be submitted.
+         * Return inherits these values from
+         * the linked Accrual.
          */
         if (value === "Return") {
           next.periods = [];
@@ -407,10 +575,6 @@ export default function ManualReportCreate() {
       return next;
     });
 
-    /*
-     * Return does not use manually entered rows.
-     * Keep a clean initial row ready if the user switches back.
-     */
     if (name === "report_type" && value === "Return") {
       setPeriodInput("");
     }
@@ -436,6 +600,24 @@ export default function ManualReportCreate() {
 
     if (!selectedPeriod) {
       setError("Select a period before clicking Add Period.");
+
+      return;
+    }
+
+    const periodRecord = periodStatusMap.get(selectedPeriod);
+
+    if (periodRecord?.status === PERIOD_STATUS.CLOSED) {
+      setError(
+        `${formatPeriod(selectedPeriod)} is closed and cannot be selected.${
+          periodRecord.reason ? ` Reason: ${periodRecord.reason}` : ""
+        }`,
+      );
+
+      return;
+    }
+
+    if (form.periods.includes(selectedPeriod)) {
+      setError(`${formatPeriod(selectedPeriod)} has already been selected.`);
 
       return;
     }
@@ -547,8 +729,8 @@ export default function ManualReportCreate() {
       };
 
       /*
-       * Automatically calculate CAF Dollars when Purchase Dollars
-       * or CAF percentage changes.
+       * Automatically calculate CAF Dollars
+       * when Purchase Dollars or CAF changes.
        */
       if (field === "purchase_dollars" || field === "caf") {
         const purchaseDollars = Number(next[index].purchase_dollars || 0);
@@ -599,9 +781,6 @@ export default function ManualReportCreate() {
   // ====================================================================
 
   const validateForWarnings = () => {
-    /*
-     * Return rows are created automatically by the backend.
-     */
     if (isReturn) {
       return [];
     }
@@ -650,8 +829,8 @@ export default function ManualReportCreate() {
     }
 
     /*
-     * Report and Adjustment require user-selected periods.
-     * Return periods are inherited by the backend.
+     * Report and Adjustment require periods.
+     * Return inherits periods.
      */
     if (
       !isReturn &&
@@ -661,14 +840,25 @@ export default function ManualReportCreate() {
     }
 
     /*
-     * Report and Adjustment require manual rows.
+     * Recheck selected periods in case
+     * one was closed after selection.
+     */
+    if (!isReturn && closedSelectedPeriods.length > 0) {
+      return `The following accounting period(s) are closed and cannot be submitted: ${closedSelectedPeriods
+        .map(formatPeriod)
+        .join(", ")}.`;
+    }
+
+    /*
+     * Report and Adjustment require rows.
      */
     if (requiresManualRows && (!Array.isArray(rows) || rows.length === 0)) {
       return "At least one manual detail row is required.";
     }
 
     /*
-     * Adjustment and Return require a linked report.
+     * Adjustment and Return require
+     * a linked report.
      */
     if (
       requiresLinkedReport &&
@@ -744,10 +934,6 @@ export default function ManualReportCreate() {
 
     setWarnings(warningList);
 
-    /*
-     * Report and Adjustment warnings do not block submission.
-     * Return has no UI-entered detail rows, so no row warnings apply.
-     */
     if (warningList.length > 0) {
       const displayedWarnings = warningList.slice(0, 10);
 
@@ -771,11 +957,6 @@ export default function ManualReportCreate() {
       ? Number(form.related_report_number)
       : null;
 
-    /*
-     * Return sends no periods, supplier, contract, or manual rows.
-     * The backend inherits and creates these values from the linked
-     * approved Accrual report.
-     */
     const payload = {
       report_type: form.report_type,
 
@@ -806,10 +987,6 @@ export default function ManualReportCreate() {
         body: JSON.stringify(payload),
       });
 
-      /*
-       * Send accounting notification only for manually entered
-       * Report or Adjustment rows that contain validation warnings.
-       */
       if (!isReturn && warningList.length > 0) {
         try {
           await apiFetch(apiUrl("/notify-accounting"), {
@@ -858,6 +1035,7 @@ export default function ManualReportCreate() {
           handleRowChange(index, field.key, event.target.value)
         }
         className="w-full rounded border px-2 py-1"
+        disabled={saving}
       />
     </td>
   );
@@ -888,11 +1066,13 @@ export default function ManualReportCreate() {
         {/* ==============================================================
             REPORT HEADER
         ============================================================== */}
+
         <div className="relative z-50 space-y-4 overflow-visible rounded-lg bg-white p-5 shadow">
           <h2 className="text-lg font-semibold">Report Header</h2>
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             {/* REPORT TYPE */}
+
             <div>
               <label className="mb-1 block text-sm font-medium">
                 Report Type
@@ -915,6 +1095,7 @@ export default function ManualReportCreate() {
             </div>
 
             {/* LINKED REPORT */}
+
             {requiresLinkedReport && (
               <div>
                 <label className="mb-1 block text-sm font-medium">
@@ -943,6 +1124,7 @@ export default function ManualReportCreate() {
             )}
 
             {/* NOTE */}
+
             <div className={requiresLinkedReport ? "" : "md:col-span-2"}>
               <label className="mb-1 block text-sm font-medium">Note</label>
 
@@ -958,6 +1140,7 @@ export default function ManualReportCreate() {
             </div>
 
             {/* RETURN INFORMATION */}
+
             {isReturn && (
               <div className="md:col-span-3">
                 <div className="flex items-start gap-3 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
@@ -979,12 +1162,75 @@ export default function ManualReportCreate() {
             )}
 
             {/* PERIOD SELECTOR */}
+
             {!isReturn && (
               <div className="md:col-span-3">
-                <label className="mb-1 block text-sm font-medium">
-                  Accounting Period(s)
-                  <span className="ml-1 text-red-500">*</span>
-                </label>
+                <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                  <label className="block text-sm font-medium">
+                    Accounting Period(s)
+                    <span className="ml-1 text-red-500">*</span>
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={loadAccountingPeriods}
+                    disabled={periodsLoading || saving}
+                    className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-800 disabled:cursor-not-allowed disabled:text-gray-400"
+                  >
+                    {periodsLoading ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-3.5 w-3.5" />
+                    )}
+                    Refresh period status
+                  </button>
+                </div>
+
+                {/* PERIOD STATUS SUMMARY */}
+
+                <div className="mb-3 flex flex-wrap items-center gap-3 text-xs">
+                  {periodsLoading ? (
+                    <span className="inline-flex items-center gap-1 text-slate-500">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Loading accounting periods...
+                    </span>
+                  ) : (
+                    <>
+                      <span className="inline-flex items-center gap-1 text-emerald-700">
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        {openPeriodCount} open
+                      </span>
+
+                      <span className="inline-flex items-center gap-1 text-red-700">
+                        <LockKeyhole className="h-3.5 w-3.5" />
+                        {closedPeriodCount} closed
+                      </span>
+                    </>
+                  )}
+                </div>
+
+                {/* PERIOD LOAD ERROR */}
+
+                {periodsLoadError && (
+                  <div className="mb-3 flex items-start justify-between gap-3 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+
+                      <div>
+                        <p className="font-medium">
+                          Period status is unavailable
+                        </p>
+
+                        <p className="mt-1">{periodsLoadError}</p>
+
+                        <p className="mt-1 text-xs">
+                          Period selection is still available, but the backend
+                          must validate whether the month is open or closed.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <input
@@ -996,53 +1242,127 @@ export default function ManualReportCreate() {
                       setError("");
                       setWarnings([]);
                     }}
-                    className="w-full rounded border px-3 py-2"
-                    disabled={saving}
+                    className={`w-full rounded border px-3 py-2 ${
+                      selectedPeriodIsClosed ? "border-red-400 bg-red-50" : ""
+                    }`}
+                    disabled={saving || periodsLoading}
                   />
 
                   <button
                     type="button"
                     onClick={addPeriod}
-                    disabled={saving}
+                    disabled={
+                      saving || periodsLoading || selectedPeriodIsClosed
+                    }
                     className="inline-flex shrink-0 items-center justify-center gap-2 rounded bg-emerald-600 px-4 py-2 font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-gray-400"
                   >
-                    <CalendarPlus className="h-4 w-4" />
-                    Add Period
+                    {selectedPeriodIsClosed ? (
+                      <LockKeyhole className="h-4 w-4" />
+                    ) : (
+                      <CalendarPlus className="h-4 w-4" />
+                    )}
+
+                    {selectedPeriodIsClosed ? "Period Closed" : "Add Period"}
                   </button>
                 </div>
 
+                {/* SELECTED PERIOD STATUS */}
+
+                {periodInput && selectedPeriodRecord && (
+                  <div
+                    className={`mt-2 flex items-start gap-2 rounded p-3 text-sm ${
+                      selectedPeriodIsClosed
+                        ? "border border-red-200 bg-red-50 text-red-700"
+                        : "border border-emerald-200 bg-emerald-50 text-emerald-700"
+                    }`}
+                  >
+                    {selectedPeriodIsClosed ? (
+                      <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0" />
+                    ) : (
+                      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                    )}
+
+                    <div>
+                      <p className="font-medium">
+                        {formatPeriod(periodInput)} is{" "}
+                        {selectedPeriodIsClosed ? "closed" : "open"}
+                      </p>
+
+                      {selectedPeriodRecord.reason && (
+                        <p className="mt-1">{selectedPeriodRecord.reason}</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* SELECTED PERIOD CHIPS */}
+
                 {form.periods.length > 0 ? (
                   <div className="mt-3 flex flex-wrap gap-2">
-                    {form.periods.map((selectedPeriod) => (
-                      <span
-                        key={selectedPeriod}
-                        className="inline-flex items-center gap-2 rounded-full bg-indigo-50 px-3 py-1 text-sm font-medium text-indigo-700"
-                      >
-                        {formatPeriod(selectedPeriod)}
+                    {form.periods.map((selectedPeriod) => {
+                      const isClosed =
+                        periodStatusMap.get(selectedPeriod)?.status ===
+                        PERIOD_STATUS.CLOSED;
 
-                        <button
-                          type="button"
-                          onClick={() => removePeriod(selectedPeriod)}
-                          disabled={saving}
-                          className="rounded-full p-0.5 hover:bg-indigo-100 disabled:cursor-not-allowed"
-                          aria-label={`Remove ${formatPeriod(selectedPeriod)}`}
-                          title="Remove period"
+                      return (
+                        <span
+                          key={selectedPeriod}
+                          className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-sm font-medium ${
+                            isClosed
+                              ? "bg-red-50 text-red-700"
+                              : "bg-indigo-50 text-indigo-700"
+                          }`}
                         >
-                          <X className="h-3.5 w-3.5" />
-                        </button>
-                      </span>
-                    ))}
+                          {isClosed && <LockKeyhole className="h-3.5 w-3.5" />}
+
+                          {formatPeriod(selectedPeriod)}
+
+                          <button
+                            type="button"
+                            onClick={() => removePeriod(selectedPeriod)}
+                            disabled={saving}
+                            className="rounded-full p-0.5 hover:bg-black/5 disabled:cursor-not-allowed"
+                            aria-label={`Remove ${formatPeriod(
+                              selectedPeriod,
+                            )}`}
+                            title="Remove period"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </span>
+                      );
+                    })}
                   </div>
                 ) : (
                   <p className="mt-2 text-sm text-slate-500">
-                    Select a month and click Add Period. Multiple accounting
-                    periods can be selected.
+                    Select an open month and click Add Period. Multiple
+                    accounting periods can be selected.
                   </p>
+                )}
+
+                {/* CLOSED SELECTED PERIOD WARNING */}
+
+                {closedSelectedPeriods.length > 0 && (
+                  <div className="mt-3 flex items-start gap-2 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                    <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0" />
+
+                    <div>
+                      <p className="font-semibold">
+                        A selected period is now closed
+                      </p>
+
+                      <p className="mt-1">
+                        Remove the following period(s) before submitting:{" "}
+                        {closedSelectedPeriods.map(formatPeriod).join(", ")}.
+                      </p>
+                    </div>
+                  </div>
                 )}
               </div>
             )}
 
             {/* SUPPLIER CODE */}
+
             {!isReturn && (
               <div className="relative">
                 <label className="mb-1 block text-sm font-medium">
@@ -1094,6 +1414,7 @@ export default function ManualReportCreate() {
             )}
 
             {/* CONTRACT ID */}
+
             {!isReturn && (
               <div className="relative">
                 <label className="mb-1 block text-sm font-medium">
@@ -1151,6 +1472,7 @@ export default function ManualReportCreate() {
         {/* ==============================================================
             ERROR
         ============================================================== */}
+
         {error && (
           <div className="rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-700">
             <div className="flex items-center gap-2 font-semibold">
@@ -1163,8 +1485,9 @@ export default function ManualReportCreate() {
         )}
 
         {/* ==============================================================
-            MANUAL ROWS — REPORT AND ADJUSTMENT ONLY
+            MANUAL ROWS
         ============================================================== */}
+
         {requiresManualRows && (
           <div className="relative z-10 space-y-4 rounded-lg bg-white p-5 shadow">
             <div className="flex items-center justify-between gap-4">
@@ -1188,6 +1511,7 @@ export default function ManualReportCreate() {
             </div>
 
             {/* VALIDATION WARNINGS */}
+
             {warnings.length > 0 && (
               <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
                 <div className="mb-2 flex items-center gap-2 font-semibold">
@@ -1215,6 +1539,7 @@ export default function ManualReportCreate() {
             )}
 
             {/* DETAIL TABLE */}
+
             <div className="overflow-x-auto">
               <table className="min-w-full border text-sm">
                 <thead className="bg-slate-100">
@@ -1267,6 +1592,7 @@ export default function ManualReportCreate() {
         {/* ==============================================================
             RETURN SUMMARY
         ============================================================== */}
+
         {isReturn && (
           <div className="rounded-lg bg-white p-5 shadow">
             <h2 className="text-lg font-semibold">Return Processing</h2>
@@ -1296,6 +1622,7 @@ export default function ManualReportCreate() {
         {/* ==============================================================
             SUBMIT
         ============================================================== */}
+
         <div className="flex justify-end gap-3">
           <button
             type="button"
@@ -1308,9 +1635,9 @@ export default function ManualReportCreate() {
 
           <button
             type="submit"
-            disabled={saving}
+            disabled={saving || (!isReturn && closedSelectedPeriods.length > 0)}
             className={`rounded px-4 py-2 font-semibold text-white ${
-              saving
+              saving || (!isReturn && closedSelectedPeriods.length > 0)
                 ? "cursor-not-allowed bg-gray-400"
                 : "bg-indigo-600 hover:bg-indigo-700"
             }`}
