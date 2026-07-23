@@ -107,7 +107,7 @@ export default function Header() {
                   >
                     Create Manual Report
                   </Link>
-                  
+
                   <Link to="/ManageUsers" className={isActive("/ManageUsers")}>
                     Manage Users
                   </Link>
@@ -119,6 +119,10 @@ export default function Header() {
                   </Link>
                   <Link to="/ssp/reports" className={isActive("/ssp/reports")}>
                     SSP Reports Dashboard
+                  </Link>
+
+                  <Link to="/manage-accounting-periods" className={isActive("/manage-accounting-periods")}>
+                    Manage Accounting Periods
                   </Link>
                 </>
               )}

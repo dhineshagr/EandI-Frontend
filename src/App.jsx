@@ -24,7 +24,7 @@ import UserAuditLog from "./pages/UserAuditLog";
 import ReportAuditLog from "./pages/ReportAuditLog";
 import SspReportsDashboard from "./pages/SspReportsDashboard";
 import ManualReportCreate from "./pages/ManualReportCreate";
-
+import ManageAccountingPeriods from "./pages/ManageAccountingPeriods";
 /* ===============================
    Layout with Header (Auth only)
 ================================ */
@@ -162,6 +162,15 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <ReportDetail />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/manage-accounting-periods"
+            element={
+              <ProtectedRoute requireInternal>
+                <ManageAccountingPeriods />
               </ProtectedRoute>
             }
           />
