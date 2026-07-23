@@ -1,25 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import apiFetch from "../utils/apiFetch";
-
-/*
- * Change the apiFetch import path if your project stores it elsewhere.
- *
- * Examples:
- * import apiFetch from "../../utils/apiFetch";
- * import { apiFetch } from "../services/api";
- */
+import { apiFetch } from "../api/apiClient";
+import { apiUrl } from "../api/config";
 
 const EMPTY_NEW_PERIOD = "";
-
-function normalizeApiError(data, fallbackMessage) {
-  return (
-    data?.message ||
-    data?.error ||
-    data?.details ||
-    fallbackMessage ||
-    "An unexpected error occurred."
-  );
-}
 
 function formatPeriod(period) {
   const value = String(period || "").trim();
@@ -62,24 +45,26 @@ function formatUtcDate(value) {
 
 function getCurrentMonth() {
   const now = new Date();
+
   const year = now.getFullYear();
+
   const month = String(now.getMonth() + 1).padStart(2, "0");
 
   return `${year}-${month}`;
 }
 
 function normalizePeriodRecord(record) {
+  const isLocked = Boolean(record?.is_locked ?? record?.Is_Locked ?? false);
+
   return {
     accounting_period_id:
       record?.accounting_period_id ?? record?.Accounting_Period_ID ?? null,
 
     period: record?.period ?? record?.Period ?? "",
 
-    is_locked: Boolean(record?.is_locked ?? record?.Is_Locked ?? false),
+    is_locked: isLocked,
 
-    status:
-      record?.status ||
-      (Boolean(record?.is_locked ?? record?.Is_Locked) ? "closed" : "open"),
+    status: record?.status || (isLocked ? "closed" : "open"),
 
     locked_by: record?.locked_by ?? record?.Locked_By ?? null,
 
@@ -97,26 +82,33 @@ function normalizePeriodRecord(record) {
 
 export default function ManageAccountingPeriods() {
   const [periods, setPeriods] = useState([]);
+
   const [newPeriod, setNewPeriod] = useState(EMPTY_NEW_PERIOD);
 
   const [loading, setLoading] = useState(true);
+
   const [creating, setCreating] = useState(false);
+
   const [refreshing, setRefreshing] = useState(false);
 
   const [processingPeriod, setProcessingPeriod] = useState(null);
+
   const [processingAction, setProcessingAction] = useState(null);
 
   const [successMessage, setSuccessMessage] = useState("");
+
   const [errorMessage, setErrorMessage] = useState("");
 
-  const clearMessages = () => {
+  const clearMessages = useCallback(() => {
     setSuccessMessage("");
     setErrorMessage("");
-  };
+  }, []);
 
   const loadAccountingPeriods = useCallback(
-    async ({ refresh = false } = {}) => {
-      clearMessages();
+    async ({ refresh = false, preserveMessage = false } = {}) => {
+      if (!preserveMessage) {
+        clearMessages();
+      }
 
       if (refresh) {
         setRefreshing(true);
@@ -125,15 +117,14 @@ export default function ManageAccountingPeriods() {
       }
 
       try {
-        const response = await apiFetch("/reports/accounting-periods", {
-          method: "GET",
-        });
+        const data = await apiFetch(apiUrl("/reports/accounting-periods"));
 
-        const data = await response.json().catch(() => ({}));
-
-        if (!response.ok) {
+        /*
+         * apiFetch returns null for HTTP 401.
+         */
+        if (!data) {
           throw new Error(
-            normalizeApiError(data, "Unable to load accounting periods."),
+            "Your session may have expired. Please sign in again.",
           );
         }
 
@@ -153,7 +144,7 @@ export default function ManageAccountingPeriods() {
         setRefreshing(false);
       }
     },
-    [],
+    [clearMessages],
   );
 
   useEffect(() => {
@@ -162,7 +153,9 @@ export default function ManageAccountingPeriods() {
 
   const periodCounts = useMemo(() => {
     const total = periods.length;
+
     const locked = periods.filter((item) => item.is_locked).length;
+
     const open = total - locked;
 
     return {
@@ -174,48 +167,46 @@ export default function ManageAccountingPeriods() {
 
   const handleCreatePeriod = async (event) => {
     event.preventDefault();
+
     clearMessages();
 
     const period = String(newPeriod || "").trim();
 
     if (!period) {
       setErrorMessage("Please select an accounting period.");
+
       return;
     }
 
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period)) {
       setErrorMessage("Accounting period must use YYYY-MM format.");
+
       return;
     }
 
     const alreadyExists = periods.some(
-      (item) => String(item.period).trim() === period,
+      (item) => String(item.period || "").trim() === period,
     );
 
     if (alreadyExists) {
       setErrorMessage(`Accounting period ${period} already exists.`);
+
       return;
     }
 
     setCreating(true);
 
     try {
-      const response = await apiFetch("/reports/accounting-periods", {
+      const data = await apiFetch(apiUrl("/reports/accounting-periods"), {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+
         body: JSON.stringify({
           period,
         }),
       });
 
-      const data = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        throw new Error(
-          normalizeApiError(data, "Unable to create accounting period."),
-        );
+      if (!data) {
+        throw new Error("Your session may have expired. Please sign in again.");
       }
 
       setNewPeriod(EMPTY_NEW_PERIOD);
@@ -225,7 +216,9 @@ export default function ManageAccountingPeriods() {
           `Accounting period ${period} was created successfully.`,
       );
 
-      await loadAccountingPeriods();
+      await loadAccountingPeriods({
+        preserveMessage: true,
+      });
     } catch (error) {
       console.error("Create accounting period failed:", error);
 
@@ -242,6 +235,7 @@ export default function ManageAccountingPeriods() {
 
     if (!period) {
       setErrorMessage("Invalid accounting period.");
+
       return;
     }
 
@@ -260,17 +254,15 @@ export default function ManageAccountingPeriods() {
     try {
       const encodedPeriod = encodeURIComponent(period);
 
-      const response = await apiFetch(
-        `/reports/accounting-periods/${encodedPeriod}/lock`,
+      const data = await apiFetch(
+        apiUrl(`/reports/accounting-periods/${encodedPeriod}/lock`),
         {
           method: "PUT",
         },
       );
 
-      const data = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        throw new Error(normalizeApiError(data, `Unable to lock ${period}.`));
+      if (!data) {
+        throw new Error("Your session may have expired. Please sign in again.");
       }
 
       setSuccessMessage(
@@ -278,17 +270,21 @@ export default function ManageAccountingPeriods() {
       );
 
       setPeriods((currentPeriods) =>
-        currentPeriods.map((item) =>
-          item.period === period
-            ? normalizePeriodRecord(
-                data?.period || {
-                  ...item,
-                  is_locked: true,
-                  status: "closed",
-                },
-              )
-            : item,
-        ),
+        currentPeriods.map((item) => {
+          if (item.period !== period) {
+            return item;
+          }
+
+          return normalizePeriodRecord(
+            data?.period || {
+              ...item,
+
+              is_locked: true,
+
+              status: "closed",
+            },
+          );
+        }),
       );
     } catch (error) {
       console.error("Lock accounting period failed:", error);
@@ -309,6 +305,7 @@ export default function ManageAccountingPeriods() {
 
     if (!period) {
       setErrorMessage("Invalid accounting period.");
+
       return;
     }
 
@@ -327,17 +324,15 @@ export default function ManageAccountingPeriods() {
     try {
       const encodedPeriod = encodeURIComponent(period);
 
-      const response = await apiFetch(
-        `/reports/accounting-periods/${encodedPeriod}/unlock`,
+      const data = await apiFetch(
+        apiUrl(`/reports/accounting-periods/${encodedPeriod}/unlock`),
         {
           method: "PUT",
         },
       );
 
-      const data = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        throw new Error(normalizeApiError(data, `Unable to unlock ${period}.`));
+      if (!data) {
+        throw new Error("Your session may have expired. Please sign in again.");
       }
 
       setSuccessMessage(
@@ -346,17 +341,21 @@ export default function ManageAccountingPeriods() {
       );
 
       setPeriods((currentPeriods) =>
-        currentPeriods.map((item) =>
-          item.period === period
-            ? normalizePeriodRecord(
-                data?.period || {
-                  ...item,
-                  is_locked: false,
-                  status: "open",
-                },
-              )
-            : item,
-        ),
+        currentPeriods.map((item) => {
+          if (item.period !== period) {
+            return item;
+          }
+
+          return normalizePeriodRecord(
+            data?.period || {
+              ...item,
+
+              is_locked: false,
+
+              status: "open",
+            },
+          );
+        }),
       );
     } catch (error) {
       console.error("Unlock accounting period failed:", error);
@@ -391,7 +390,11 @@ export default function ManageAccountingPeriods() {
 
           <button
             type="button"
-            onClick={() => loadAccountingPeriods({ refresh: true })}
+            onClick={() =>
+              loadAccountingPeriods({
+                refresh: true,
+              })
+            }
             disabled={refreshing || loading}
             className="inline-flex items-center justify-center rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
           >
@@ -399,7 +402,7 @@ export default function ManageAccountingPeriods() {
           </button>
         </div>
 
-        {/* Messages */}
+        {/* Success message */}
         {successMessage && (
           <div
             className="mb-5 rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800"
@@ -420,6 +423,7 @@ export default function ManageAccountingPeriods() {
           </div>
         )}
 
+        {/* Error message */}
         {errorMessage && (
           <div
             className="mb-5 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
@@ -496,6 +500,7 @@ export default function ManageAccountingPeriods() {
                 max="9999-12"
                 onChange={(event) => {
                   setNewPeriod(event.target.value);
+
                   clearMessages();
                 }}
                 disabled={creating}

@@ -31,7 +31,12 @@ export async function apiFetch(url, options = {}) {
       parsed = { error: text };
     }
 
-    throw new Error(parsed.error || `API ${response.status}`);
+    throw new Error(
+      parsed.message ||
+        parsed.error ||
+        parsed.details ||
+        `API ${response.status}`,
+    );
   }
 
   try {
