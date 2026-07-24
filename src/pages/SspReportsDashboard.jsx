@@ -20,6 +20,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
+import { ChevronDown, Columns3 } from "lucide-react";
 
 import { apiFetch } from "../api/apiClient";
 import { apiUrl } from "../api/config";
@@ -43,12 +44,42 @@ const TABLE_COLUMNS = [
   { key: "actions", label: "Actions", noSort: true },
 ];
 
-const DEFAULT_VISIBLE_COLUMNS = TABLE_COLUMNS.reduce((result, column) => {
-  result[column.key] = true;
-  return result;
-}, {});
-
 const COLUMN_STORAGE_KEY = "sspReportsVisibleColumns";
+
+const createDefaultVisibleColumns = () =>
+  TABLE_COLUMNS.reduce((columns, column) => {
+    columns[column.key] = true;
+    return columns;
+  }, {});
+
+const loadVisibleColumns = () => {
+  const defaults = createDefaultVisibleColumns();
+
+  try {
+    const savedValue = window.localStorage.getItem(COLUMN_STORAGE_KEY);
+
+    if (!savedValue) {
+      return defaults;
+    }
+
+    const parsedValue = JSON.parse(savedValue);
+
+    if (!parsedValue || typeof parsedValue !== "object") {
+      return defaults;
+    }
+
+    return {
+      ...defaults,
+      ...parsedValue,
+
+      // Keep Actions visible so users can open and download reports.
+      actions: true,
+    };
+  } catch (error) {
+    console.warn("Unable to load SSP dashboard column settings:", error);
+    return defaults;
+  }
+};
 
 const EMPTY_PAGE_TOTALS = {
   record_count: 0,
@@ -87,22 +118,7 @@ export default function SspReportsDashboard() {
   const [pageSize, setPageSize] = useState(25);
   const [showColumnMenu, setShowColumnMenu] = useState(false);
 
-  const [visibleColumns, setVisibleColumns] = useState(() => {
-    try {
-      const savedColumns = localStorage.getItem(COLUMN_STORAGE_KEY);
-
-      if (!savedColumns) {
-        return DEFAULT_VISIBLE_COLUMNS;
-      }
-
-      return {
-        ...DEFAULT_VISIBLE_COLUMNS,
-        ...JSON.parse(savedColumns),
-      };
-    } catch {
-      return DEFAULT_VISIBLE_COLUMNS;
-    }
-  });
+  const [visibleColumns, setVisibleColumns] = useState(loadVisibleColumns);
 
   // ======================================================================
   // HELPERS
@@ -185,13 +201,20 @@ export default function SspReportsDashboard() {
   // ======================================================================
   useEffect(() => {
     try {
-      localStorage.setItem(COLUMN_STORAGE_KEY, JSON.stringify(visibleColumns));
-    } catch (err) {
-      console.warn("Unable to save SSP dashboard column settings:", err);
+      window.localStorage.setItem(
+        COLUMN_STORAGE_KEY,
+        JSON.stringify(visibleColumns),
+      );
+    } catch (error) {
+      console.warn("Unable to save SSP dashboard column settings:", error);
     }
   }, [visibleColumns]);
 
-  const toggleColumnVisibility = (columnKey) => {
+  const toggleColumn = (columnKey) => {
+    if (columnKey === "actions") {
+      return;
+    }
+
     setVisibleColumns((previous) => ({
       ...previous,
       [columnKey]: !previous[columnKey],
@@ -199,7 +222,11 @@ export default function SspReportsDashboard() {
   };
 
   const showAllColumns = () => {
-    setVisibleColumns({ ...DEFAULT_VISIBLE_COLUMNS });
+    setVisibleColumns(createDefaultVisibleColumns());
+  };
+
+  const resetColumns = () => {
+    setVisibleColumns(createDefaultVisibleColumns());
   };
 
   const visibleTableColumns = useMemo(
@@ -529,39 +556,68 @@ export default function SspReportsDashboard() {
             <button
               type="button"
               onClick={() => setShowColumnMenu((previous) => !previous)}
-              className="border border-slate-300 px-4 py-2 rounded hover:bg-slate-100"
+              className="inline-flex items-center gap-2 border border-slate-300 px-4 py-2 rounded hover:bg-slate-100"
             >
+              <Columns3 className="h-4 w-4" />
               Show / Hide Columns
+              <ChevronDown className="h-4 w-4" />
             </button>
 
             {showColumnMenu && (
-              <div className="absolute right-0 z-50 mt-2 max-h-96 w-64 overflow-y-auto rounded border bg-white p-3 shadow-lg">
-                <div className="mb-2 flex items-center justify-between border-b pb-2">
-                  <span className="font-medium">Visible Columns</span>
+              <div className="absolute right-0 z-50 mt-2 w-72 rounded border border-slate-200 bg-white p-4 shadow-xl">
+                <div className="mb-3 flex items-center justify-between">
+                  <span className="font-semibold text-slate-700">
+                    Visible Columns
+                  </span>
 
                   <button
                     type="button"
                     onClick={showAllColumns}
-                    className="text-xs text-blue-600 underline"
+                    className="text-sm text-indigo-600 hover:underline"
                   >
                     Show All
                   </button>
                 </div>
 
-                {TABLE_COLUMNS.map((column) => (
-                  <label
-                    key={column.key}
-                    className="flex cursor-pointer items-center gap-2 py-1 text-sm"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={Boolean(visibleColumns[column.key])}
-                      onChange={() => toggleColumnVisibility(column.key)}
-                    />
+                <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+                  {TABLE_COLUMNS.map((column) => (
+                    <label
+                      key={column.key}
+                      className={`flex items-center gap-2 text-sm ${
+                        column.key === "actions"
+                          ? "cursor-not-allowed text-slate-400"
+                          : "cursor-pointer text-slate-700"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={Boolean(visibleColumns[column.key])}
+                        disabled={column.key === "actions"}
+                        onChange={() => toggleColumn(column.key)}
+                      />
 
-                    <span>{column.label}</span>
-                  </label>
-                ))}
+                      <span>{column.label}</span>
+                    </label>
+                  ))}
+                </div>
+
+                <div className="mt-4 flex justify-between border-t pt-3">
+                  <button
+                    type="button"
+                    onClick={resetColumns}
+                    className="text-sm text-slate-600 hover:underline"
+                  >
+                    Reset
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowColumnMenu(false)}
+                    className="rounded bg-slate-800 px-3 py-1.5 text-sm text-white hover:bg-slate-900"
+                  >
+                    Done
+                  </button>
+                </div>
               </div>
             )}
           </div>
