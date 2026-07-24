@@ -181,7 +181,16 @@ export default function RecentUploadsCard({ uploads }) {
           periodDisplay:
             periods.length > 0 ? periods.join(", ") : upload.period || "—",
 
-          supplier: upload.bp_code || upload.bpCode || "—",
+          supplierCode: upload.bp_code || upload.bpCode || "",
+
+          supplierName: upload.supplier_name || upload.supplierName || "",
+
+          supplier:
+            upload.supplier_name ||
+            upload.supplierName ||
+            upload.bp_code ||
+            upload.bpCode ||
+            "—",
 
           contract: upload.contract_id || upload.contractId || "—",
 
@@ -523,8 +532,26 @@ export default function RecentUploadsCard({ uploads }) {
                       )}
                     </td>
 
-                    <td className="whitespace-nowrap border px-3 py-2">
-                      {upload.supplier}
+                    <td className="border px-3 py-2">
+                      <div className="max-w-[220px]">
+                        <div
+                          className="truncate font-medium text-slate-800"
+                          title={
+                            upload.supplierName || upload.supplierCode || "—"
+                          }
+                        >
+                          {upload.supplierName || upload.supplierCode || "—"}
+                        </div>
+
+                        {upload.supplierName && upload.supplierCode && (
+                          <div
+                            className="mt-0.5 truncate text-xs text-slate-500"
+                            title={upload.supplierCode}
+                          >
+                            {upload.supplierCode}
+                          </div>
+                        )}
+                      </div>
                     </td>
 
                     <td className="whitespace-nowrap border px-3 py-2">
