@@ -375,27 +375,11 @@ export default function UploadDashboard() {
      LOCKED PERIODS
   -------------------------------------------------------------------- */
 
-  const configuredPeriodSet = useMemo(
-    () => new Set(accountingPeriods.map(getPeriodValue).filter(Boolean)),
-    [accountingPeriods],
-  );
-
   const lockedPeriodSet = useMemo(
     () =>
       new Set(
         accountingPeriods
           .filter(getLockedValue)
-          .map(getPeriodValue)
-          .filter(Boolean),
-      ),
-    [accountingPeriods],
-  );
-
-  const openPeriodSet = useMemo(
-    () =>
-      new Set(
-        accountingPeriods
-          .filter((item) => !getLockedValue(item))
           .map(getPeriodValue)
           .filter(Boolean),
       ),
@@ -619,18 +603,6 @@ export default function UploadDashboard() {
       toast({
         title: "Period required",
         description: "Please choose a month before clicking Add.",
-        variant: "destructive",
-      });
-
-      return;
-    }
-
-    if (!configuredPeriodSet.has(selectedPeriod)) {
-      toast({
-        title: "Period is not configured",
-        description:
-          `${selectedPeriod} has not been configured. ` +
-          "Please select a configured accounting period.",
         variant: "destructive",
       });
 
@@ -886,22 +858,6 @@ export default function UploadDashboard() {
       return false;
     }
 
-    const unconfiguredSelections = selectedPeriods.filter(
-      (period) => !configuredPeriodSet.has(period),
-    );
-
-    if (unconfiguredSelections.length > 0) {
-      toast({
-        title: "Unconfigured period selected",
-        description:
-          "Remove the unconfigured period(s): " +
-          unconfiguredSelections.join(", "),
-        variant: "destructive",
-      });
-
-      return false;
-    }
-
     const lockedSelections = selectedPeriods.filter((period) =>
       lockedPeriodSet.has(period),
     );
@@ -1091,14 +1047,6 @@ export default function UploadDashboard() {
       return null;
     }
 
-    if (!configuredPeriodSet.has(selectedPickerPeriod)) {
-      return {
-        type: "not-configured",
-        label: "Not configured",
-        message: "This accounting period has not been configured.",
-      };
-    }
-
     if (lockedPeriodSet.has(selectedPickerPeriod)) {
       return {
         type: "locked",
@@ -1112,7 +1060,7 @@ export default function UploadDashboard() {
       label: "Open",
       message: "This accounting period is available for submission.",
     };
-  }, [configuredPeriodSet, lockedPeriodSet, selectedPickerPeriod]);
+  }, [lockedPeriodSet, selectedPickerPeriod]);
 
   /* ====================================================================
      UI
@@ -1192,7 +1140,7 @@ export default function UploadDashboard() {
                   onClick={addSelectedPeriod}
                   disabled={
                     !selectedPickerPeriod ||
-                    !openPeriodSet.has(selectedPickerPeriod)
+                    lockedPeriodSet.has(selectedPickerPeriod)
                   }
                   className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2.5 font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600"
                 >
@@ -1206,9 +1154,7 @@ export default function UploadDashboard() {
                   className={`mt-2 flex items-start gap-2 rounded-lg border px-3 py-2 text-xs ${
                     periodPickerStatus.type === "open"
                       ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                      : periodPickerStatus.type === "locked"
-                        ? "border-red-200 bg-red-50 text-red-700"
-                        : "border-amber-200 bg-amber-50 text-amber-700"
+                      : "border-red-200 bg-red-50 text-red-700"
                   }`}
                 >
                   {periodPickerStatus.type === "locked" && (
