@@ -121,19 +121,76 @@ function normalizeBoolean(value) {
   );
 }
 
+function normalizePeriodKey(value) {
+  if (value == null || value === "") {
+    return "";
+  }
+
+  const text = String(value).trim();
+
+  if (/^\d{4}-\d{2}$/.test(text)) {
+    return text;
+  }
+
+  const datePrefixMatch = text.match(/^(\d{4})-(\d{2})/);
+
+  if (datePrefixMatch) {
+    return `${datePrefixMatch[1]}-${datePrefixMatch[2]}`;
+  }
+
+  const parsedDate = new Date(`${text} 01`);
+
+  if (!Number.isNaN(parsedDate.getTime())) {
+    return `${parsedDate.getFullYear()}-${String(
+      parsedDate.getMonth() + 1,
+    ).padStart(2, "0")}`;
+  }
+
+  return text;
+}
+
+function normalizePeriodStatus(value) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+
+  return ["closed", "frozen", "locked"].includes(normalized);
+}
+
 function getPeriodValue(item) {
-  return String(
+  if (typeof item === "string") {
+    return normalizePeriodKey(item);
+  }
+
+  return normalizePeriodKey(
     item?.period ??
       item?.Period ??
       item?.accounting_period ??
       item?.Accounting_Period ??
+      item?.accountingPeriod ??
+      item?.period_value ??
+      item?.month ??
       "",
-  ).trim();
+  );
 }
 
 function getLockedValue(item) {
+  const explicitStatus =
+    item?.status ?? item?.period_status ?? item?.Period_Status ?? null;
+
+  if (explicitStatus !== null && explicitStatus !== undefined) {
+    return normalizePeriodStatus(explicitStatus);
+  }
+
   return normalizeBoolean(
-    item?.is_locked ?? item?.Is_Locked ?? item?.locked ?? item?.Locked,
+    item?.is_locked ??
+      item?.Is_Locked ??
+      item?.locked ??
+      item?.Locked ??
+      item?.isLocked ??
+      item?.is_closed ??
+      item?.Is_Closed ??
+      false,
   );
 }
 
@@ -449,32 +506,37 @@ export default function UploadDashboard() {
   const fetchAccountingPeriods = useCallback(async () => {
     try {
       /*
-       * Use the existing Upload Dashboard accounting-period endpoint.
-       * This preserves the endpoint and response format already used
-       * by the upload workflow.
+       * Use the same endpoint as Create Manual Report so both pages
+       * use one accounting-period source of truth.
        */
-      const data = await apiFetch(apiUrl("/uploads/periods"));
+      const data = await apiFetch(apiUrl("/reports/accounting-periods"));
 
       if (!data) {
         throw new Error("Your session may have expired. Please sign in again.");
       }
 
-      /*
-       * Support all known response formats:
-       *
-       * { items: [...] }
-       * { periods: [...] }
-       * [...]
-       */
-      const periodItems = Array.isArray(data?.items)
-        ? data.items
-        : Array.isArray(data?.periods)
-          ? data.periods
-          : Array.isArray(data)
-            ? data
-            : [];
+      const periodItems = Array.isArray(data?.periods)
+        ? data.periods
+        : Array.isArray(data?.items)
+          ? data.items
+          : Array.isArray(data?.accounting_periods)
+            ? data.accounting_periods
+            : Array.isArray(data?.rows)
+              ? data.rows
+              : Array.isArray(data)
+                ? data
+                : [];
 
-      console.log("Upload accounting periods:", periodItems);
+      console.log("Upload accounting-period API response:", data);
+
+      console.log(
+        "Upload normalized accounting periods:",
+        periodItems.map((item) => ({
+          period: getPeriodValue(item),
+          locked: getLockedValue(item),
+          original: item,
+        })),
+      );
 
       setAccountingPeriods(periodItems);
     } catch (error) {
@@ -551,7 +613,7 @@ export default function UploadDashboard() {
   ==================================================================== */
 
   const addSelectedPeriod = () => {
-    const selectedPeriod = String(periodPicker || "").trim();
+    const selectedPeriod = normalizePeriodKey(periodPicker);
 
     if (!selectedPeriod) {
       toast({
@@ -1022,7 +1084,7 @@ export default function UploadDashboard() {
 
   const disabled = !SAS_URL;
 
-  const selectedPickerPeriod = String(periodPicker || "").trim();
+  const selectedPickerPeriod = normalizePeriodKey(periodPicker);
 
   const periodPickerStatus = useMemo(() => {
     if (!selectedPickerPeriod) {
