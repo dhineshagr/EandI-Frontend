@@ -294,7 +294,9 @@ export default function SspReportsDashboard() {
       getReportTypeDisplay(report),
       report.file_name || "",
       getPeriodDisplay(report),
-      report.bp_code || "",
+      report.supplier_name
+        ? `${report.supplier_name} (${report.bp_code || ""})`
+        : report.bp_code || "",
       report.contract_id || "",
       report.uploaded_by_display ||
         report.uploaded_by_name ||
@@ -450,7 +452,7 @@ export default function SspReportsDashboard() {
             name="supplier"
             value={filters.supplier}
             onChange={handleFilterChange}
-            placeholder="Filter by Supplier Code"
+            placeholder="Filter by Supplier Name or Code"
             className="border p-2 rounded"
           />
 
@@ -498,7 +500,7 @@ export default function SspReportsDashboard() {
                 { key: "report_type", label: "Type" },
                 { key: "file_name", label: "File" },
                 { key: "period", label: "Period(s)" },
-                { key: "bp_code", label: "Supplier" },
+                { key: "supplier_name", label: "Supplier" },
                 { key: "contract_id", label: "Contract" },
                 {
                   key: "uploaded_by_display",
@@ -619,7 +621,17 @@ export default function SspReportsDashboard() {
                     </td>
 
                     <td className="border px-3 py-2">
-                      {report.bp_code || "-"}
+                      <div>
+                        <div className="font-medium">
+                          {report.supplier_name || report.bp_code || "-"}
+                        </div>
+
+                        {report.supplier_name && report.bp_code && (
+                          <div className="text-xs text-slate-500">
+                            {report.bp_code}
+                          </div>
+                        )}
+                      </div>
                     </td>
 
                     <td className="border px-3 py-2">

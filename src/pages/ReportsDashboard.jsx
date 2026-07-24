@@ -76,6 +76,7 @@ export default function ReportsDashboard() {
           rep.status,
           rep.report_type,
           rep.period,
+          rep.supplier_name,
           rep.bp_code,
           rep.contract_id,
           rep.related_report_number,
@@ -258,7 +259,19 @@ export default function ReportsDashboard() {
                   </td>
 
                   <td className="px-3 py-2 border">{rep.period || "-"}</td>
-                  <td className="px-3 py-2 border">{rep.bp_code || "-"}</td>
+                  <td className="px-3 py-2 border">
+                    <div>
+                      <div className="font-medium">
+                        {rep.supplier_name || rep.bp_code || "-"}
+                      </div>
+
+                      {rep.supplier_name && rep.bp_code && (
+                        <div className="text-xs text-slate-500">
+                          {rep.bp_code}
+                        </div>
+                      )}
+                    </div>
+                  </td>
                   <td className="px-3 py-2 border">{rep.contract_id || "-"}</td>
 
                   <td className="px-3 py-2 border">
