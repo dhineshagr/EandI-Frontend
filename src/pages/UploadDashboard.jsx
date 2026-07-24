@@ -1004,6 +1004,26 @@ export default function UploadDashboard() {
         url: uploadedUrl,
       });
 
+      /*
+       * Clear report-level fields only after the upload/register request
+       * and any validation notification have completed successfully.
+       *
+       * Supplier users keep their login-assigned supplier code.
+       * Internal users receive a completely cleared Supplier field.
+       */
+      setReportType("Report");
+      setSelectedPeriods([]);
+      setPeriodPicker("");
+      setContractId("");
+      setContractOptions([]);
+      setShowContractOptions(false);
+      setSupplierOptions([]);
+      setShowSupplierOptions(false);
+
+      if (userType !== "bp") {
+        setBpCode("");
+      }
+
       if (!isZeroSales) {
         setTimeout(() => {
           setItems([]);
