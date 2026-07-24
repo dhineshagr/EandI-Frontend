@@ -651,7 +651,11 @@ export default function ManualReportCreate() {
     setForm((previous) => ({
       ...previous,
       bp_code: value,
+      contract_id: "",
     }));
+
+    setContractOptions([]);
+    setShowContractOptions(false);
 
     if (!value || value.trim().length < 1) {
       setSupplierOptions([]);
@@ -1366,7 +1370,7 @@ export default function ManualReportCreate() {
             {!isReturn && (
               <div className="relative">
                 <label className="mb-1 block text-sm font-medium">
-                  Supplier Code
+                  Supplier
                 </label>
 
                 <input
@@ -1382,7 +1386,7 @@ export default function ManualReportCreate() {
                   onBlur={() => {
                     setTimeout(() => setShowSupplierOptions(false), 200);
                   }}
-                  placeholder="Type Supplier Code"
+                  placeholder="Type Supplier ID or Name"
                   className="w-full rounded border px-3 py-2"
                   disabled={saving}
                   autoComplete="off"
@@ -1399,13 +1403,26 @@ export default function ManualReportCreate() {
                           setForm((previous) => ({
                             ...previous,
                             bp_code: supplier.bp_code,
+                            contract_id: "",
                           }));
 
+                          setContractOptions([]);
                           setShowSupplierOptions(false);
                         }}
                         className="w-full px-3 py-2 text-left text-sm hover:bg-emerald-50"
                       >
-                        {supplier.bp_code}
+                        <div className="font-medium text-slate-800">
+                          {supplier.display_name ||
+                            `${supplier.bp_code} - ${
+                              supplier.supplier_name || ""
+                            }`}
+                        </div>
+
+                        {supplier.supplier_name && (
+                          <div className="mt-0.5 text-xs text-slate-500">
+                            Supplier ID: {supplier.bp_code}
+                          </div>
+                        )}
                       </button>
                     ))}
                   </div>
