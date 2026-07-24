@@ -321,6 +321,27 @@ export default function UploadDashboard() {
     [accountingPeriods],
   );
 
+  const configuredPeriodSet = useMemo(
+    () =>
+      new Set(
+        accountingPeriods
+          .map((item) => String(item?.period || "").trim())
+          .filter(Boolean),
+      ),
+    [accountingPeriods],
+  );
+
+  const openPeriodSet = useMemo(
+    () =>
+      new Set(
+        accountingPeriods
+          .filter((item) => !normalizeBoolean(item?.is_locked))
+          .map((item) => String(item?.period || "").trim())
+          .filter(Boolean),
+      ),
+    [accountingPeriods],
+  );
+
   /* ====================================================================
      CONTRACTS FOR SUPPLIER
   ==================================================================== */
@@ -415,9 +436,19 @@ export default function UploadDashboard() {
 
   const fetchAccountingPeriods = useCallback(async () => {
     try {
-      const data = await apiFetch(apiUrl("/uploads/periods"));
+      const data = await apiFetch(apiUrl("/reports/accounting-periods"));
 
-      setAccountingPeriods(Array.isArray(data?.items) ? data.items : []);
+      if (!data) {
+        throw new Error("Your session may have expired. Please sign in again.");
+      }
+
+      const periodItems = Array.isArray(data?.periods)
+        ? data.periods
+        : Array.isArray(data)
+          ? data
+          : [];
+
+      setAccountingPeriods(periodItems);
     } catch (error) {
       console.error("Failed to fetch accounting periods:", error);
 
@@ -434,9 +465,17 @@ export default function UploadDashboard() {
     fetchRecentUploads();
     fetchAccountingPeriods();
 
-    const interval = setInterval(fetchRecentUploads, 30000);
+    const recentUploadsInterval = setInterval(fetchRecentUploads, 30000);
 
-    return () => clearInterval(interval);
+    const accountingPeriodsInterval = setInterval(
+      fetchAccountingPeriods,
+      60000,
+    );
+
+    return () => {
+      clearInterval(recentUploadsInterval);
+      clearInterval(accountingPeriodsInterval);
+    };
   }, [fetchUserProfile, fetchRecentUploads, fetchAccountingPeriods]);
 
   /* ====================================================================
@@ -496,6 +535,18 @@ export default function UploadDashboard() {
       return;
     }
 
+    if (!configuredPeriodSet.has(selectedPeriod)) {
+      toast({
+        title: "Period is not configured",
+        description:
+          `${selectedPeriod} has not been configured. ` +
+          "Please select a configured accounting period.",
+        variant: "destructive",
+      });
+
+      return;
+    }
+
     if (lockedPeriodSet.has(selectedPeriod)) {
       toast({
         title: "Period is locked",
@@ -508,6 +559,11 @@ export default function UploadDashboard() {
 
     setSelectedPeriods((previousPeriods) => {
       if (previousPeriods.includes(selectedPeriod)) {
+        toast({
+          title: "Period already selected",
+          description: `${selectedPeriod} has already been added.`,
+        });
+
         return previousPeriods;
       }
 
@@ -732,7 +788,24 @@ export default function UploadDashboard() {
     if (selectedPeriods.length === 0) {
       toast({
         title: "Period required",
-        description: "Please select at least one period before submitting.",
+        description:
+          "Please select at least one accounting period before submitting.",
+        variant: "destructive",
+      });
+
+      return false;
+    }
+
+    const unconfiguredSelections = selectedPeriods.filter(
+      (period) => !configuredPeriodSet.has(period),
+    );
+
+    if (unconfiguredSelections.length > 0) {
+      toast({
+        title: "Unconfigured period selected",
+        description:
+          "Remove the unconfigured period(s): " +
+          unconfiguredSelections.join(", "),
         variant: "destructive",
       });
 
@@ -921,6 +994,36 @@ export default function UploadDashboard() {
 
   const disabled = !SAS_URL;
 
+  const selectedPickerPeriod = String(periodPicker || "").trim();
+
+  const periodPickerStatus = useMemo(() => {
+    if (!selectedPickerPeriod) {
+      return null;
+    }
+
+    if (!configuredPeriodSet.has(selectedPickerPeriod)) {
+      return {
+        type: "not-configured",
+        label: "Not configured",
+        message: "This accounting period has not been configured.",
+      };
+    }
+
+    if (lockedPeriodSet.has(selectedPickerPeriod)) {
+      return {
+        type: "locked",
+        label: "Locked",
+        message: "Reports cannot be submitted for this period.",
+      };
+    }
+
+    return {
+      type: "open",
+      label: "Open",
+      message: "This accounting period is available for submission.",
+    };
+  }, [configuredPeriodSet, lockedPeriodSet, selectedPickerPeriod]);
+
   /* ====================================================================
      UI
   ==================================================================== */
@@ -997,12 +1100,37 @@ export default function UploadDashboard() {
                 <button
                   type="button"
                   onClick={addSelectedPeriod}
-                  className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2.5 font-medium text-white hover:bg-emerald-700"
+                  disabled={
+                    !selectedPickerPeriod ||
+                    !openPeriodSet.has(selectedPickerPeriod)
+                  }
+                  className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2.5 font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600"
                 >
                   <Plus className="h-4 w-4" />
                   Add
                 </button>
               </div>
+
+              {periodPickerStatus && (
+                <div
+                  className={`mt-2 flex items-start gap-2 rounded-lg border px-3 py-2 text-xs ${
+                    periodPickerStatus.type === "open"
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                      : periodPickerStatus.type === "locked"
+                        ? "border-red-200 bg-red-50 text-red-700"
+                        : "border-amber-200 bg-amber-50 text-amber-700"
+                  }`}
+                >
+                  {periodPickerStatus.type === "locked" && (
+                    <LockKeyhole className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  )}
+
+                  <span>
+                    <strong>{periodPickerStatus.label}:</strong>{" "}
+                    {periodPickerStatus.message}
+                  </span>
+                </div>
+              )}
 
               {selectedPeriods.length > 0 ? (
                 <div className="mt-2 flex flex-wrap gap-2">
