@@ -1,14 +1,20 @@
 // src/pages/ReportsDashboard.jsx
-// ✅ Add Passed + Pending handling (do NOT remove other logic)
-// ✅ Disable “View Details” button for processing reports (pending/new/staged/submitted)
-// ✅ Normalize status once per row to avoid case issues
-// ✅ Derive final status from counts when backend is stuck in pending/submitted/etc.
-// ✅ ZERO_SALES should NOT open details page
-// ✅ ZERO_SALES should show "Zero Sales Submitted"
-// ✅ Added Period / Supplier / Contract columns
-// ✅ Added Linked Report # column
+// ======================================================================
+// Reports Dashboard
+// ----------------------------------------------------------------------
+// ✔ Session-based authentication
+// ✔ Search, sorting, and client-side pagination
+// ✔ Supplier name and supplier code display
+// ✔ Multiple-period display
+// ✔ Linked Report #
+// ✔ Purchase and CAF totals for each report
+// ✔ Dynamic totals for the current displayed page
+// ✔ Sticky/frozen table header
+// ✔ Show/hide columns with localStorage persistence
+// ✔ Existing status derivation and Zero Sales behavior preserved
+// ======================================================================
 
-import React, { useEffect, useState, useCallback, useMemo } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import {
@@ -17,11 +23,76 @@ import {
   CheckCircle,
   XCircle,
   AlertTriangle,
+  Columns3,
+  ChevronDown,
 } from "lucide-react";
 
-// 🔗 Centralized API utilities
 import { apiFetch } from "../api/apiClient";
 import { apiUrl } from "../api/config";
+
+// ======================================================================
+// COLUMN CONFIGURATION
+// ======================================================================
+
+const COLUMN_STORAGE_KEY = "reportsDashboardVisibleColumns";
+
+const TABLE_COLUMNS = [
+  { key: "report_number", label: "Report #" },
+  { key: "related_report_number", label: "Linked Report #" },
+  { key: "report_type", label: "Type" },
+  { key: "filename", label: "File" },
+  { key: "period", label: "Period" },
+  { key: "supplier", label: "Supplier", sortKey: "supplier_name" },
+  { key: "contract_id", label: "Contract" },
+  {
+    key: "uploaded_by",
+    label: "Uploaded By",
+    sortKey: "uploaded_by_display",
+  },
+  { key: "status", label: "Status" },
+  { key: "uploaded_at_utc", label: "Uploaded At" },
+  { key: "passed_count", label: "Passed" },
+  { key: "failed_count", label: "Failed" },
+  { key: "approved_count", label: "Approved" },
+  { key: "total_purchase", label: "Total Purchase $" },
+  { key: "total_caf", label: "Total CAF $" },
+  { key: "action", label: "Action", noSort: true },
+];
+
+const createDefaultVisibleColumns = () =>
+  TABLE_COLUMNS.reduce((columns, column) => {
+    columns[column.key] = true;
+    return columns;
+  }, {});
+
+const loadVisibleColumns = () => {
+  const defaults = createDefaultVisibleColumns();
+
+  try {
+    const savedValue = window.localStorage.getItem(COLUMN_STORAGE_KEY);
+
+    if (!savedValue) {
+      return defaults;
+    }
+
+    const parsedValue = JSON.parse(savedValue);
+
+    if (!parsedValue || typeof parsedValue !== "object") {
+      return defaults;
+    }
+
+    return {
+      ...defaults,
+      ...parsedValue,
+
+      // Keep the Action column available so users can open reports.
+      action: true,
+    };
+  } catch (error) {
+    console.warn("Unable to load Reports Dashboard column settings:", error);
+    return defaults;
+  }
+};
 
 export default function ReportsDashboard() {
   const navigate = useNavigate();
@@ -33,21 +104,84 @@ export default function ReportsDashboard() {
   const [reports, setReports] = useState([]);
   const [search, setSearch] = useState("");
 
-  // Sorting + Pagination
+  // Sorting and pagination
   const [sortField, setSortField] = useState("uploaded_at_utc");
   const [sortDir, setSortDir] = useState("desc");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
 
+  // Column visibility
+  const [showColumnMenu, setShowColumnMenu] = useState(false);
+  const [visibleColumns, setVisibleColumns] = useState(loadVisibleColumns);
+
   // ======================================================================
-  // 📡 FETCH REPORTS (Session-based)
+  // HELPERS
+  // ======================================================================
+
+  const formatMoney = (value) =>
+    Number(value || 0).toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+
+  const getReportPeriods = (report) => {
+    if (Array.isArray(report?.periods) && report.periods.length > 0) {
+      return report.periods
+        .map((period) => String(period || "").trim())
+        .filter(Boolean);
+    }
+
+    if (report?.period) {
+      return String(report.period)
+        .split(",")
+        .map((period) => period.trim())
+        .filter(Boolean);
+    }
+
+    return [];
+  };
+
+  const getPeriodDisplay = (report) => {
+    const periods = getReportPeriods(report);
+    return periods.length > 0 ? periods.join(", ") : "-";
+  };
+
+  const isZeroSalesReport = (report) =>
+    String(report?.filename || report?.file_name || "")
+      .trim()
+      .toUpperCase()
+      .startsWith("ZERO_SALES");
+
+  const getReportTypeDisplay = (report) => {
+    if (isZeroSalesReport(report)) {
+      return "Zero Sales";
+    }
+
+    const reportType = String(report?.report_type || "").trim();
+
+    if (reportType.toLowerCase() === "members") {
+      return "Report";
+    }
+
+    return reportType || "-";
+  };
+
+  const getUploadedByDisplay = (report) =>
+    report?.uploaded_by_display ||
+    report?.uploaded_by_name ||
+    report?.uploaded_by ||
+    "-";
+
+  // ======================================================================
+  // FETCH REPORTS
   // ======================================================================
   const fetchReports = useCallback(async () => {
     setLoading(true);
 
     try {
       const data = await apiFetch(apiUrl("/reports/list"));
-      setReports(data.reports || []);
+
+      setReports(Array.isArray(data.reports) ? data.reports : []);
     } catch (err) {
       console.error("❌ Failed to load reports:", err);
       setReports([]);
@@ -61,65 +195,154 @@ export default function ReportsDashboard() {
   }, [fetchReports]);
 
   // ======================================================================
-  // 🔍 SEARCH + SORT + PAGINATION
+  // SAVE COLUMN VISIBILITY
+  // ======================================================================
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        COLUMN_STORAGE_KEY,
+        JSON.stringify(visibleColumns),
+      );
+    } catch (error) {
+      console.warn("Unable to save Reports Dashboard column settings:", error);
+    }
+  }, [visibleColumns]);
+
+  // ======================================================================
+  // SEARCH, SORT, AND PAGINATION
   // ======================================================================
   const processed = useMemo(() => {
     let list = [...reports];
 
-    // Search
-    const q = search.trim().toLowerCase();
-    if (q) {
-      list = list.filter((rep) =>
+    const queryValue = search.trim().toLowerCase();
+
+    if (queryValue) {
+      list = list.filter((report) =>
         [
-          rep.filename,
-          rep.uploaded_by,
-          rep.status,
-          rep.report_type,
-          rep.period,
-          rep.supplier_name,
-          rep.bp_code,
-          rep.contract_id,
-          rep.related_report_number,
-          String(rep.report_number),
+          report.filename,
+          report.uploaded_by,
+          report.uploaded_by_display,
+          report.uploaded_by_name,
+          report.status,
+          report.report_type,
+          report.period,
+          ...(Array.isArray(report.periods) ? report.periods : []),
+          report.supplier_name,
+          report.bp_code,
+          report.contract_id,
+          report.related_report_number,
+          report.total_purchase,
+          report.total_caf,
+          String(report.report_number),
         ]
-          .filter(Boolean)
+          .filter(
+            (value) =>
+              value !== undefined &&
+              value !== null &&
+              String(value).trim() !== "",
+          )
           .join(" ")
           .toLowerCase()
-          .includes(q),
+          .includes(queryValue),
       );
     }
 
-    // Sort
-    list.sort((a, b) => {
-      const av = a[sortField] ?? "";
-      const bv = b[sortField] ?? "";
+    list.sort((leftReport, rightReport) => {
+      let leftValue;
+      let rightValue;
 
-      if (typeof av === "number" && typeof bv === "number") {
-        return sortDir === "asc" ? av - bv : bv - av;
+      if (sortField === "supplier_name") {
+        leftValue = leftReport.supplier_name || leftReport.bp_code || "";
+        rightValue = rightReport.supplier_name || rightReport.bp_code || "";
+      } else if (sortField === "uploaded_by_display") {
+        leftValue = getUploadedByDisplay(leftReport);
+        rightValue = getUploadedByDisplay(rightReport);
+      } else {
+        leftValue = leftReport[sortField] ?? "";
+        rightValue = rightReport[sortField] ?? "";
+      }
+
+      const numericSortFields = [
+        "report_number",
+        "related_report_number",
+        "passed_count",
+        "failed_count",
+        "approved_count",
+        "total_purchase",
+        "total_caf",
+      ];
+
+      if (numericSortFields.includes(sortField)) {
+        const leftNumber = Number(leftValue || 0);
+        const rightNumber = Number(rightValue || 0);
+
+        return sortDir === "asc"
+          ? leftNumber - rightNumber
+          : rightNumber - leftNumber;
+      }
+
+      if (sortField === "uploaded_at_utc") {
+        const leftTime = leftValue ? new Date(leftValue).getTime() : 0;
+        const rightTime = rightValue ? new Date(rightValue).getTime() : 0;
+
+        return sortDir === "asc" ? leftTime - rightTime : rightTime - leftTime;
       }
 
       return sortDir === "asc"
-        ? String(av).localeCompare(String(bv))
-        : String(bv).localeCompare(String(av));
+        ? String(leftValue).localeCompare(String(rightValue))
+        : String(rightValue).localeCompare(String(leftValue));
     });
 
-    // Pagination
     const total = list.length;
-    const start = (page - 1) * pageSize;
-    const slice = list.slice(start, start + pageSize);
+    const startIndex = (page - 1) * pageSize;
+    const slice = list.slice(startIndex, startIndex + pageSize);
 
-    return { total, slice };
+    return {
+      total,
+      slice,
+    };
   }, [reports, search, sortField, sortDir, page, pageSize]);
 
   const totalPages = Math.max(1, Math.ceil(processed.total / pageSize));
 
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [page, totalPages]);
+
   // ======================================================================
-  // 🔽 SORT HANDLER
+  // CURRENT-PAGE TOTALS
+  // ======================================================================
+  const currentPageTotals = useMemo(
+    () =>
+      processed.slice.reduce(
+        (totals, report) => {
+          const purchase = Number(report.total_purchase || 0);
+          const caf = Number(report.total_caf || 0);
+
+          totals.total_purchase += Number.isFinite(purchase) ? purchase : 0;
+
+          totals.total_caf += Number.isFinite(caf) ? caf : 0;
+
+          return totals;
+        },
+        {
+          total_purchase: 0,
+          total_caf: 0,
+        },
+      ),
+    [processed.slice],
+  );
+
+  // ======================================================================
+  // SORTING
   // ======================================================================
   const toggleSort = (field) => {
     setPage(1);
+
     if (sortField === field) {
-      setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
+      setSortDir((previous) => (previous === "asc" ? "desc" : "asc"));
     } else {
       setSortField(field);
       setSortDir("asc");
@@ -132,7 +355,35 @@ export default function ReportsDashboard() {
     ) : null;
 
   // ======================================================================
-  // ⏳ LOADING
+  // COLUMN VISIBILITY
+  // ======================================================================
+  const visibleTableColumns = TABLE_COLUMNS.filter(
+    (column) => visibleColumns[column.key],
+  );
+
+  const visibleColumnCount = Math.max(1, visibleTableColumns.length);
+
+  const toggleColumn = (columnKey) => {
+    if (columnKey === "action") {
+      return;
+    }
+
+    setVisibleColumns((previous) => ({
+      ...previous,
+      [columnKey]: !previous[columnKey],
+    }));
+  };
+
+  const showAllColumns = () => {
+    setVisibleColumns(createDefaultVisibleColumns());
+  };
+
+  const resetColumns = () => {
+    setVisibleColumns(createDefaultVisibleColumns());
+  };
+
+  // ======================================================================
+  // LOADING
   // ======================================================================
   if (loading) {
     return (
@@ -143,234 +394,437 @@ export default function ReportsDashboard() {
   }
 
   // ======================================================================
-  // 🎨 UI
+  // UI
   // ======================================================================
   return (
     <div className="p-6 space-y-6">
-      <h1 className="text-2xl font-bold">Reports Dashboard</h1>
-      <p className="text-slate-600">
-        List of uploaded reports with statuses, counts, and actions.
-      </p>
+      <div>
+        <h1 className="text-2xl font-bold">Reports Dashboard</h1>
 
-      {/* Search */}
-      <div className="bg-white shadow p-4 rounded flex gap-4 items-center">
-        <input
-          type="text"
-          placeholder="Search by file, user, report #, linked report #, period, supplier, or contract"
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value);
-            setPage(1);
-          }}
-          className="border rounded px-3 py-2 w-1/2"
-        />
+        <p className="mt-1 text-slate-600">
+          List of uploaded reports with statuses, counts, totals, and actions.
+        </p>
       </div>
 
-      {/* Table */}
-      <div className="overflow-x-auto bg-white shadow rounded-lg">
-        <table className="min-w-full border text-sm">
-          <thead className="bg-slate-100 text-left">
-            <tr>
-              {[
-                { key: "report_number", label: "Report #" },
-                { key: "related_report_number", label: "Linked Report #" },
-                { key: "report_type", label: "Type" },
-                { key: "filename", label: "File" },
-                { key: "period", label: "Period" },
-                { key: "bp_code", label: "Supplier" },
-                { key: "contract_id", label: "Contract" },
-                { key: "uploaded_by", label: "Uploaded By" },
-                { key: "status", label: "Status" },
-                { key: "uploaded_at_utc", label: "Uploaded At" },
-                { key: "passed_count", label: "Passed" },
-                { key: "failed_count", label: "Failed" },
-                { key: "approved_count", label: "Approved" },
-              ].map((col) => (
-                <th
-                  key={col.key}
-                  onClick={() => toggleSort(col.key)}
-                  className="px-3 py-2 border cursor-pointer select-none"
-                >
-                  <span className="inline-flex items-center gap-1">
-                    {col.label}
-                    {renderSortIcon(col.key)}
+      {/* SEARCH AND COLUMN CONTROLS */}
+      <div className="bg-white shadow p-4 rounded">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <input
+            type="text"
+            placeholder="Search by file, user, report #, linked report #, period, supplier, contract, Purchase $, or CAF $"
+            value={search}
+            onChange={(event) => {
+              setSearch(event.target.value);
+              setPage(1);
+            }}
+            className="border rounded px-3 py-2 w-full lg:w-2/3"
+          />
+
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowColumnMenu((previous) => !previous)}
+              className="inline-flex items-center gap-2 border border-slate-300 px-4 py-2 rounded hover:bg-slate-100"
+            >
+              <Columns3 className="h-4 w-4" />
+              Show / Hide Columns
+              <ChevronDown className="h-4 w-4" />
+            </button>
+
+            {showColumnMenu && (
+              <div className="absolute right-0 z-40 mt-2 w-72 rounded border border-slate-200 bg-white p-4 shadow-xl">
+                <div className="mb-3 flex items-center justify-between">
+                  <span className="font-semibold text-slate-700">
+                    Visible Columns
                   </span>
-                </th>
-              ))}
-              <th className="px-3 py-2 border">Action</th>
+
+                  <button
+                    type="button"
+                    onClick={showAllColumns}
+                    className="text-sm text-indigo-600 hover:underline"
+                  >
+                    Show All
+                  </button>
+                </div>
+
+                <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+                  {TABLE_COLUMNS.map((column) => (
+                    <label
+                      key={column.key}
+                      className={`flex items-center gap-2 text-sm ${
+                        column.key === "action"
+                          ? "cursor-not-allowed text-slate-400"
+                          : "cursor-pointer text-slate-700"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={Boolean(visibleColumns[column.key])}
+                        disabled={column.key === "action"}
+                        onChange={() => toggleColumn(column.key)}
+                      />
+
+                      <span>{column.label}</span>
+                    </label>
+                  ))}
+                </div>
+
+                <div className="mt-4 flex justify-between border-t pt-3">
+                  <button
+                    type="button"
+                    onClick={resetColumns}
+                    className="text-sm text-slate-600 hover:underline"
+                  >
+                    Reset
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowColumnMenu(false)}
+                    className="rounded bg-slate-800 px-3 py-1.5 text-sm text-white hover:bg-slate-900"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* CURRENT PAGE TOTALS */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="text-sm text-slate-500">Records on Current Page</div>
+
+          <div className="mt-1 text-2xl font-semibold text-slate-900">
+            {processed.slice.length}
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="text-sm text-slate-500">
+            Current Page Purchase Total
+          </div>
+
+          <div className="mt-1 text-2xl font-semibold text-slate-900">
+            ${formatMoney(currentPageTotals.total_purchase)}
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="text-sm text-slate-500">Current Page CAF Total</div>
+
+          <div className="mt-1 text-2xl font-semibold text-slate-900">
+            ${formatMoney(currentPageTotals.total_caf)}
+          </div>
+        </div>
+      </div>
+
+      {/* TABLE */}
+      <div className="max-h-[65vh] overflow-auto rounded-lg bg-white shadow">
+        <table className="min-w-full border text-sm">
+          <thead className="sticky top-0 z-20 bg-slate-100 text-left shadow-sm">
+            <tr>
+              {visibleTableColumns.map((column) => {
+                const sortKey = column.sortKey || column.key;
+
+                return (
+                  <th
+                    key={column.key}
+                    onClick={
+                      column.noSort ? undefined : () => toggleSort(sortKey)
+                    }
+                    className={`border px-3 py-2 whitespace-nowrap ${
+                      column.noSort
+                        ? ""
+                        : "cursor-pointer select-none hover:bg-slate-200"
+                    }`}
+                  >
+                    <span className="inline-flex items-center gap-1">
+                      {column.label}
+
+                      {!column.noSort && renderSortIcon(sortKey)}
+                    </span>
+                  </th>
+                );
+              })}
             </tr>
           </thead>
 
           <tbody>
-            {processed.slice.map((rep) => {
-              const rawStatus = String(rep.status ?? "")
+            {processed.slice.map((report) => {
+              const rawStatus = String(report.status ?? "")
                 .trim()
                 .toLowerCase();
 
-              const isZeroSales =
-                String(rep.filename || "")
-                  .trim()
-                  .toUpperCase() === "ZERO_SALES" ||
-                String(rep.filename || "")
-                  .trim()
-                  .toUpperCase()
-                  .startsWith("ZERO_SALES");
+              const isZeroSales = isZeroSalesReport(report);
 
-              const passedCount = Number(rep.passed_count ?? 0);
-              const failedCount = Number(rep.failed_count ?? 0);
-              const approvedCount = Number(rep.approved_count ?? 0);
+              const passedCount = Number(report.passed_count ?? 0);
+
+              const failedCount = Number(report.failed_count ?? 0);
+
+              const approvedCount = Number(report.approved_count ?? 0);
+
               const totalKnown = passedCount + failedCount + approvedCount;
 
-              const processingLike = ["pending", "new", "staged", "submitted"];
+              const processingLike = [
+                "pending",
+                "new",
+                "staged",
+                "submitted",
+                "processing",
+              ];
 
               const deriveStatusFromCounts = () => {
-                if (isZeroSales) return rawStatus || "submitted";
-                if (failedCount > 0) return "failed";
-                if (totalKnown === 0) return rawStatus || "pending";
-                if (approvedCount > 0 && approvedCount === totalKnown)
+                if (isZeroSales) {
+                  return rawStatus || "submitted";
+                }
+
+                if (failedCount > 0) {
+                  return "failed";
+                }
+
+                if (totalKnown === 0) {
+                  return rawStatus || "pending";
+                }
+
+                if (approvedCount > 0 && approvedCount === totalKnown) {
                   return "approved";
-                if (passedCount > 0 && passedCount === totalKnown)
+                }
+
+                if (passedCount > 0 && passedCount === totalKnown) {
                   return "passed";
-                if (failedCount === 0 && passedCount + approvedCount > 0)
+                }
+
+                if (failedCount === 0 && passedCount + approvedCount > 0) {
                   return "passed";
+                }
+
                 return rawStatus || "pending";
               };
 
               const status = processingLike.includes(rawStatus)
                 ? deriveStatusFromCounts()
-                : rawStatus;
+                : rawStatus || deriveStatusFromCounts();
 
               const isProcessing = processingLike.includes(status);
+
               const disableViewDetails = isProcessing || isZeroSales;
 
               return (
-                <tr key={rep.report_number} className="hover:bg-slate-50">
-                  <td className="px-3 py-2 border">{rep.report_number}</td>
+                <tr key={report.report_number} className="hover:bg-slate-50">
+                  {visibleColumns.report_number && (
+                    <td className="border px-3 py-2">{report.report_number}</td>
+                  )}
 
-                  <td className="px-3 py-2 border">
-                    {rep.related_report_number || "-"}
-                  </td>
+                  {visibleColumns.related_report_number && (
+                    <td className="border px-3 py-2">
+                      {report.related_report_number || "-"}
+                    </td>
+                  )}
 
-                  <td className="px-3 py-2 border">{rep.report_type}</td>
+                  {visibleColumns.report_type && (
+                    <td className="border px-3 py-2">
+                      {getReportTypeDisplay(report)}
+                    </td>
+                  )}
 
-                  <td className="px-3 py-2 border flex items-center gap-2">
-                    <FileSpreadsheet className="h-4 w-4 text-emerald-600" />
-                    {rep.filename}
-                  </td>
+                  {visibleColumns.filename && (
+                    <td className="border px-3 py-2">
+                      <div className="flex items-center gap-2">
+                        <FileSpreadsheet className="h-4 w-4 shrink-0 text-emerald-600" />
 
-                  <td className="px-3 py-2 border">{rep.period || "-"}</td>
-                  <td className="px-3 py-2 border">
-                    <div>
-                      <div className="font-medium">
-                        {rep.supplier_name || rep.bp_code || "-"}
+                        <span>{report.filename || "-"}</span>
                       </div>
+                    </td>
+                  )}
 
-                      {rep.supplier_name && rep.bp_code && (
-                        <div className="text-xs text-slate-500">
-                          {rep.bp_code}
+                  {visibleColumns.period && (
+                    <td className="border px-3 py-2">
+                      <div
+                        className="max-w-xs whitespace-normal"
+                        title={getPeriodDisplay(report)}
+                      >
+                        {getPeriodDisplay(report)}
+                      </div>
+                    </td>
+                  )}
+
+                  {visibleColumns.supplier && (
+                    <td className="border px-3 py-2">
+                      <div>
+                        <div className="font-medium">
+                          {report.supplier_name || report.bp_code || "-"}
                         </div>
+
+                        {report.supplier_name && report.bp_code && (
+                          <div className="text-xs text-slate-500">
+                            {report.bp_code}
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                  )}
+
+                  {visibleColumns.contract_id && (
+                    <td className="border px-3 py-2">
+                      {report.contract_id || "-"}
+                    </td>
+                  )}
+
+                  {visibleColumns.uploaded_by && (
+                    <td className="border px-3 py-2">
+                      {getUploadedByDisplay(report)}
+                    </td>
+                  )}
+
+                  {visibleColumns.status && (
+                    <td className="border px-3 py-2">
+                      {status === "approved" && (
+                        <span className="flex items-center gap-1 text-emerald-600">
+                          <CheckCircle className="h-4 w-4" />
+                          Approved
+                        </span>
                       )}
-                    </div>
-                  </td>
-                  <td className="px-3 py-2 border">{rep.contract_id || "-"}</td>
 
-                  <td className="px-3 py-2 border">
-                    {rep.uploaded_by_display ||
-                      rep.uploaded_by_name ||
-                      rep.uploaded_by ||
-                      "-"}
-                  </td>
+                      {status === "failed" && (
+                        <span className="flex items-center gap-1 text-red-600">
+                          <XCircle className="h-4 w-4" />
+                          Failed
+                        </span>
+                      )}
 
-                  {/* ✅ Status */}
-                  <td className="px-3 py-2 border">
-                    {status === "approved" && (
-                      <span className="flex items-center gap-1 text-emerald-600">
-                        <CheckCircle className="h-4 w-4" /> Approved
-                      </span>
-                    )}
+                      {status === "passed" && (
+                        <span className="flex items-center gap-1 text-blue-600">
+                          <CheckCircle className="h-4 w-4" />
+                          Passed
+                        </span>
+                      )}
 
-                    {status === "failed" && (
-                      <span className="flex items-center gap-1 text-red-600">
-                        <XCircle className="h-4 w-4" /> Failed
-                      </span>
-                    )}
+                      {status === "submitted" && (
+                        <span className="flex items-center gap-1 text-sky-600">
+                          <CheckCircle className="h-4 w-4" />
+                          Submitted
+                        </span>
+                      )}
 
-                    {status === "passed" && (
-                      <span className="flex items-center gap-1 text-blue-600">
-                        <CheckCircle className="h-4 w-4" /> Passed
-                      </span>
-                    )}
+                      {status === "validated" && (
+                        <span className="flex items-center gap-1 text-amber-600">
+                          <AlertTriangle className="h-4 w-4" />
+                          Validated
+                        </span>
+                      )}
 
-                    {status === "submitted" && (
-                      <span className="flex items-center gap-1 text-sky-600">
-                        <CheckCircle className="h-4 w-4" /> Submitted
-                      </span>
-                    )}
+                      {["new", "staged", "processing"].includes(status) && (
+                        <span className="text-slate-600 capitalize">
+                          {status}
+                        </span>
+                      )}
 
-                    {status === "validated" && (
-                      <span className="flex items-center gap-1 text-amber-600">
-                        <AlertTriangle className="h-4 w-4" /> Validated
-                      </span>
-                    )}
+                      {status === "pending" && (
+                        <span className="text-slate-500">Pending</span>
+                      )}
 
-                    {["new", "staged"].includes(status) && (
-                      <span className="text-slate-600 capitalize">
-                        {status}
-                      </span>
-                    )}
+                      {![
+                        "approved",
+                        "failed",
+                        "passed",
+                        "submitted",
+                        "validated",
+                        "new",
+                        "staged",
+                        "processing",
+                        "pending",
+                      ].includes(status) && (
+                        <span className="text-slate-600 capitalize">
+                          {status || "Pending"}
+                        </span>
+                      )}
+                    </td>
+                  )}
 
-                    {status === "pending" && (
-                      <span className="text-slate-500">Pending</span>
-                    )}
+                  {visibleColumns.uploaded_at_utc && (
+                    <td className="border px-3 py-2 whitespace-nowrap">
+                      {report.uploaded_at_utc
+                        ? new Date(report.uploaded_at_utc).toLocaleString()
+                        : "-"}
+                    </td>
+                  )}
 
-                    {!status && <span className="text-slate-500">Pending</span>}
-                  </td>
+                  {visibleColumns.passed_count && (
+                    <td className="border px-3 py-2 text-center">
+                      {passedCount}
+                    </td>
+                  )}
 
-                  <td className="px-3 py-2 border">
-                    {rep.uploaded_at_utc
-                      ? new Date(rep.uploaded_at_utc).toLocaleString()
-                      : "-"}
-                  </td>
+                  {visibleColumns.failed_count && (
+                    <td className="border px-3 py-2 text-center">
+                      {failedCount}
+                    </td>
+                  )}
 
-                  <td className="px-3 py-2 border">{passedCount}</td>
-                  <td className="px-3 py-2 border">{failedCount}</td>
-                  <td className="px-3 py-2 border">{approvedCount}</td>
+                  {visibleColumns.approved_count && (
+                    <td className="border px-3 py-2 text-center">
+                      {approvedCount}
+                    </td>
+                  )}
 
-                  {/* ✅ Action */}
-                  <td className="px-3 py-2 border">
-                    <button
-                      onClick={() => {
-                        if (disableViewDetails) return;
-                        navigate(`/reports/${rep.report_number}`);
-                      }}
-                      disabled={disableViewDetails}
-                      className={
-                        disableViewDetails
-                          ? "text-gray-400 cursor-not-allowed"
-                          : "text-indigo-600 underline"
-                      }
-                      title={
-                        isZeroSales
-                          ? "Zero Sales declaration has no detail rows."
+                  {visibleColumns.total_purchase && (
+                    <td className="border px-3 py-2 text-right whitespace-nowrap">
+                      ${formatMoney(report.total_purchase)}
+                    </td>
+                  )}
+
+                  {visibleColumns.total_caf && (
+                    <td className="border px-3 py-2 text-right whitespace-nowrap">
+                      ${formatMoney(report.total_caf)}
+                    </td>
+                  )}
+
+                  {visibleColumns.action && (
+                    <td className="border px-3 py-2 whitespace-nowrap">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (disableViewDetails) {
+                            return;
+                          }
+
+                          navigate(`/reports/${report.report_number}`);
+                        }}
+                        disabled={disableViewDetails}
+                        className={
+                          disableViewDetails
+                            ? "cursor-not-allowed text-gray-400"
+                            : "text-indigo-600 underline"
+                        }
+                        title={
+                          isZeroSales
+                            ? "Zero Sales declaration has no detail rows."
+                            : isProcessing
+                              ? "Report is still processing. Please wait and refresh."
+                              : "View report details"
+                        }
+                      >
+                        {isZeroSales
+                          ? "Zero Sales Submitted"
                           : isProcessing
-                            ? "Report is still processing. Please wait and refresh."
-                            : "View report details"
-                      }
-                    >
-                      {isZeroSales
-                        ? "Zero Sales Submitted"
-                        : isProcessing
-                          ? "Processing..."
-                          : "View Details"}
-                    </button>
-                  </td>
+                            ? "Processing..."
+                            : "View Details"}
+                      </button>
+                    </td>
+                  )}
                 </tr>
               );
             })}
 
             {processed.slice.length === 0 && (
               <tr>
-                <td colSpan="14" className="text-center py-4 text-slate-500">
+                <td
+                  colSpan={visibleColumnCount}
+                  className="py-6 text-center text-slate-500"
+                >
                   No reports found
                 </td>
               </tr>
@@ -379,27 +833,27 @@ export default function ReportsDashboard() {
         </table>
       </div>
 
-      {/* Pagination */}
-      <div className="flex justify-between items-center mt-4">
-        <div className="flex items-center gap-2">
+      {/* PAGINATION */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm text-gray-600">Rows per page:</span>
 
           <select
             value={pageSize}
-            onChange={(e) => {
-              setPageSize(Number(e.target.value));
+            onChange={(event) => {
+              setPageSize(Number(event.target.value));
               setPage(1);
             }}
-            className="border p-1 rounded"
+            className="rounded border p-1"
           >
-            {[10, 25, 50, 100].map((n) => (
-              <option key={n} value={n}>
-                {n}
+            {[10, 25, 50, 100].map((size) => (
+              <option key={size} value={size}>
+                {size}
               </option>
             ))}
           </select>
 
-          <span className="text-sm text-gray-600 ml-3">
+          <span className="ml-3 text-sm text-gray-600">
             {processed.total === 0
               ? "0–0 of 0"
               : `${(page - 1) * pageSize + 1}–${Math.min(
@@ -409,11 +863,12 @@ export default function ReportsDashboard() {
           </span>
         </div>
 
-        <div className="flex gap-2 items-center">
+        <div className="flex items-center gap-2">
           <button
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            type="button"
+            onClick={() => setPage((previous) => Math.max(1, previous - 1))}
             disabled={page === 1}
-            className="px-3 py-1 border rounded disabled:opacity-50"
+            className="rounded border px-3 py-1 disabled:opacity-50"
           >
             Prev
           </button>
@@ -423,9 +878,12 @@ export default function ReportsDashboard() {
           </span>
 
           <button
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            type="button"
+            onClick={() =>
+              setPage((previous) => Math.min(totalPages, previous + 1))
+            }
             disabled={page >= totalPages}
-            className="px-3 py-1 border rounded disabled:opacity-50"
+            className="rounded border px-3 py-1 disabled:opacity-50"
           >
             Next
           </button>

@@ -7,6 +7,11 @@
 // ✔ Uses apiFetch() with session cookies
 // ✔ No hardcoded backend URLs
 // ✔ Displays multi-period report metadata
+// ✔ Displays Supplier Name and BP Code
+// ✔ Overall and current-page Purchase/CAF totals
+// ✔ Sticky/frozen table header
+// ✔ Show/hide detail columns with localStorage persistence
+// ✔ Read-only database fields cannot be edited
 // ✔ All previous functionality preserved
 // ======================================================================
 
@@ -19,6 +24,8 @@ import {
   ArrowLeft,
   CalendarDays,
   CheckCircle,
+  ChevronDown,
+  Columns3,
   FileText,
   Link,
   Loader,
@@ -29,6 +36,23 @@ import {
 
 import { apiFetch } from "../api/apiClient";
 import { apiUrl } from "../api/config";
+
+const READ_ONLY_FIELDS = new Set([
+  "cur_detail_id",
+  "cur_header_id",
+  "cur_id",
+  "id",
+  "report_number",
+  "approved_by",
+  "approved_at_utc",
+  "created_at_utc",
+  "updated_at_utc",
+]);
+
+const COLUMN_STORAGE_PREFIX = "reportDetailVisibleColumns";
+
+const getColumnStorageKey = (reportNumber) =>
+  `${COLUMN_STORAGE_PREFIX}:${reportNumber}`;
 
 export default function ReportDetail() {
   const { reportNumber } = useParams();
@@ -52,6 +76,10 @@ export default function ReportDetail() {
   const [sortDir, setSortDir] = useState("asc");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+
+  // Column visibility
+  const [showColumnMenu, setShowColumnMenu] = useState(false);
+  const [visibleColumns, setVisibleColumns] = useState({});
 
   // ======================================================================
   // HELPERS
@@ -116,9 +144,25 @@ export default function ReportDetail() {
     return date.toLocaleString();
   };
 
+  const formatMoney = (value) =>
+    Number(value || 0).toLocaleString("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+
   const formatFieldLabel = (fieldName) => {
-    if (String(fieldName).toUpperCase() === "CAF") {
+    const normalized = String(fieldName || "").toLowerCase();
+
+    if (normalized === "caf") {
       return "CAF %";
+    }
+
+    if (normalized === "caf_dollars") {
+      return "CAF Dollars";
+    }
+
+    if (normalized === "purchase_dollars_calc") {
+      return "Purchase Dollars";
     }
 
     return String(fieldName)
@@ -162,6 +206,62 @@ export default function ReportDetail() {
       .toLowerCase();
 
     return status.charAt(0).toUpperCase() + status.slice(1);
+  };
+
+  const getNumericField = (row, fieldNames) => {
+    for (const fieldName of fieldNames) {
+      const value = row?.[fieldName];
+
+      if (value !== undefined && value !== null && value !== "") {
+        const numberValue = Number(value);
+
+        if (Number.isFinite(numberValue)) {
+          return numberValue;
+        }
+      }
+    }
+
+    return 0;
+  };
+
+  const getPurchaseValue = (row) =>
+    getNumericField(row, [
+      "Purchase_Dollars_Calc",
+      "purchase_dollars_calc",
+      "Purchase_Dollars",
+      "purchase_dollars",
+    ]);
+
+  const getCafValue = (row) =>
+    getNumericField(row, ["CAF_Dollars", "caf_dollars"]);
+
+  const isReadOnlyField = (fieldName) =>
+    READ_ONLY_FIELDS.has(String(fieldName || "").toLowerCase());
+
+  const formatCellValue = (column, value) => {
+    if (value === null || value === undefined) {
+      return "";
+    }
+
+    const normalizedColumn = String(column || "").toLowerCase();
+
+    if (
+      ["purchase_dollars_calc", "purchase_dollars", "caf_dollars"].includes(
+        normalizedColumn,
+      )
+    ) {
+      const numericValue = Number(value);
+
+      return Number.isFinite(numericValue)
+        ? `$${formatMoney(numericValue)}`
+        : String(value);
+    }
+
+    if (typeof value === "object") {
+      return JSON.stringify(value);
+    }
+
+    return String(value);
   };
 
   // ======================================================================
@@ -214,9 +314,111 @@ export default function ReportDetail() {
   }, [fetchData]);
 
   // ======================================================================
+  // COLUMNS
+  // ======================================================================
+  const columns = useMemo(() => {
+    const discoveredColumns = [];
+    const seenColumns = new Set();
+
+    rows.forEach((row) => {
+      Object.keys(row || {}).forEach((column) => {
+        if (!seenColumns.has(column)) {
+          seenColumns.add(column);
+          discoveredColumns.push(column);
+        }
+      });
+    });
+
+    return discoveredColumns;
+  }, [rows]);
+
+  useEffect(() => {
+    if (columns.length === 0) {
+      setVisibleColumns({});
+      return;
+    }
+
+    const defaults = columns.reduce((result, column) => {
+      result[column] = true;
+      return result;
+    }, {});
+
+    try {
+      const saved = window.localStorage.getItem(
+        getColumnStorageKey(reportNumber),
+      );
+
+      if (!saved) {
+        setVisibleColumns(defaults);
+        return;
+      }
+
+      const parsed = JSON.parse(saved);
+
+      setVisibleColumns({
+        ...defaults,
+        ...(parsed && typeof parsed === "object" ? parsed : {}),
+      });
+    } catch (error) {
+      console.warn("Unable to load Report Detail column settings:", error);
+      setVisibleColumns(defaults);
+    }
+  }, [columns, reportNumber]);
+
+  useEffect(() => {
+    if (columns.length === 0) {
+      return;
+    }
+
+    try {
+      window.localStorage.setItem(
+        getColumnStorageKey(reportNumber),
+        JSON.stringify(visibleColumns),
+      );
+    } catch (error) {
+      console.warn("Unable to save Report Detail column settings:", error);
+    }
+  }, [visibleColumns, columns.length, reportNumber]);
+
+  const displayedColumns = useMemo(
+    () => columns.filter((column) => visibleColumns[column] !== false),
+    [columns, visibleColumns],
+  );
+
+  const toggleColumn = (column) => {
+    setVisibleColumns((previous) => ({
+      ...previous,
+      [column]: previous[column] === false,
+    }));
+  };
+
+  const showAllColumns = () => {
+    setVisibleColumns(
+      columns.reduce((result, column) => {
+        result[column] = true;
+        return result;
+      }, {}),
+    );
+  };
+
+  const resetColumns = () => {
+    try {
+      window.localStorage.removeItem(getColumnStorageKey(reportNumber));
+    } catch (error) {
+      console.warn("Unable to reset Report Detail column settings:", error);
+    }
+
+    showAllColumns();
+  };
+
+  // ======================================================================
   // EDIT LOGIC
   // ======================================================================
   const startEdit = (row, field) => {
+    if (isReadOnlyField(field)) {
+      return;
+    }
+
     const id = getRowId(row);
 
     if (!id) return;
@@ -240,7 +442,7 @@ export default function ReportDetail() {
   };
 
   const saveEdit = async () => {
-    if (!editing) return;
+    if (!editing || isReadOnlyField(editing.field)) return;
 
     try {
       await apiFetch(apiUrl(`/reports/${reportNumber}/row/${editing.cur_id}`), {
@@ -349,6 +551,7 @@ export default function ReportDetail() {
 
     return {
       total,
+      filteredRows: list,
       slice,
     };
   }, [rows, search, sortField, sortDir, page, pageSize]);
@@ -371,6 +574,48 @@ export default function ReportDetail() {
       setSortDir("asc");
     }
   };
+
+  // ======================================================================
+  // TOTALS
+  // ======================================================================
+  const overallTotals = useMemo(
+    () =>
+      rows.reduce(
+        (totals, row) => {
+          totals.purchase += getPurchaseValue(row);
+          totals.caf += getCafValue(row);
+          return totals;
+        },
+        { purchase: 0, caf: 0 },
+      ),
+    [rows],
+  );
+
+  const filteredTotals = useMemo(
+    () =>
+      processed.filteredRows.reduce(
+        (totals, row) => {
+          totals.purchase += getPurchaseValue(row);
+          totals.caf += getCafValue(row);
+          return totals;
+        },
+        { purchase: 0, caf: 0 },
+      ),
+    [processed.filteredRows],
+  );
+
+  const currentPageTotals = useMemo(
+    () =>
+      processed.slice.reduce(
+        (totals, row) => {
+          totals.purchase += getPurchaseValue(row);
+          totals.caf += getCafValue(row);
+          return totals;
+        },
+        { purchase: 0, caf: 0 },
+      ),
+    [processed.slice],
+  );
 
   // ======================================================================
   // LOADING AND ERROR STATES
@@ -403,7 +648,6 @@ export default function ReportDetail() {
   const report = summary.report;
   const counts = summary.counts || {};
   const periods = getPeriods(report);
-  const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
 
   const allRowsApproved =
     rows.length > 0 && rows.every((row) => getRowStatus(row) === "approved");
@@ -486,7 +730,16 @@ export default function ReportDetail() {
               value={periods.length > 0 ? periods.join(", ") : "-"}
             />
 
-            <MetadataItem label="Supplier" value={report.bp_code || "-"} />
+            <MetadataItem
+              label="Supplier"
+              value={
+                report.supplier_name
+                  ? `${report.supplier_name}${
+                      report.bp_code ? ` (${report.bp_code})` : ""
+                    }`
+                  : report.bp_code || "-"
+              }
+            />
 
             <MetadataItem label="Contract" value={report.contract_id || "-"} />
 
@@ -545,9 +798,42 @@ export default function ReportDetail() {
         </div>
       </div>
 
+      {/* FINANCIAL TOTALS */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-6">
+        <TotalCard
+          label="Overall Purchase Total"
+          value={`$${formatMoney(overallTotals.purchase)}`}
+        />
+
+        <TotalCard
+          label="Overall CAF Total"
+          value={`$${formatMoney(overallTotals.caf)}`}
+        />
+
+        <TotalCard
+          label="Filtered Purchase Total"
+          value={`$${formatMoney(filteredTotals.purchase)}`}
+        />
+
+        <TotalCard
+          label="Filtered CAF Total"
+          value={`$${formatMoney(filteredTotals.caf)}`}
+        />
+
+        <TotalCard
+          label="Current Page Purchase Total"
+          value={`$${formatMoney(currentPageTotals.purchase)}`}
+        />
+
+        <TotalCard
+          label="Current Page CAF Total"
+          value={`$${formatMoney(currentPageTotals.caf)}`}
+        />
+      </div>
+
       {/* FILTER BAR */}
       <div className="bg-white shadow p-4 rounded-lg">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-center">
           <input
             type="text"
             placeholder="Search report rows..."
@@ -556,7 +842,7 @@ export default function ReportDetail() {
               setSearch(event.target.value);
               setPage(1);
             }}
-            className="border p-2 rounded w-full lg:w-1/3"
+            className="border p-2 rounded w-full xl:w-1/3"
           />
 
           <select
@@ -608,15 +894,80 @@ export default function ReportDetail() {
           >
             Clear
           </button>
+
+          <div className="relative xl:ml-auto">
+            <button
+              type="button"
+              onClick={() => setShowColumnMenu((previous) => !previous)}
+              className="inline-flex items-center gap-2 rounded border border-slate-300 px-4 py-2 hover:bg-slate-100"
+            >
+              <Columns3 className="h-4 w-4" />
+              Show / Hide Columns
+              <ChevronDown className="h-4 w-4" />
+            </button>
+
+            {showColumnMenu && (
+              <div className="absolute right-0 z-50 mt-2 w-80 rounded border border-slate-200 bg-white p-4 shadow-xl">
+                <div className="mb-3 flex items-center justify-between">
+                  <span className="font-semibold text-slate-700">
+                    Visible Columns
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={showAllColumns}
+                    className="text-sm text-indigo-600 hover:underline"
+                  >
+                    Show All
+                  </button>
+                </div>
+
+                <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
+                  {columns.map((column) => (
+                    <label
+                      key={column}
+                      className="flex cursor-pointer items-center gap-2 text-sm text-slate-700"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={visibleColumns[column] !== false}
+                        onChange={() => toggleColumn(column)}
+                      />
+
+                      <span>{formatFieldLabel(column)}</span>
+                    </label>
+                  ))}
+                </div>
+
+                <div className="mt-4 flex justify-between border-t pt-3">
+                  <button
+                    type="button"
+                    onClick={resetColumns}
+                    className="text-sm text-slate-600 hover:underline"
+                  >
+                    Reset
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowColumnMenu(false)}
+                    className="rounded bg-slate-800 px-3 py-1.5 text-sm text-white hover:bg-slate-900"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
       {/* DETAIL TABLE */}
-      <div className="overflow-x-auto bg-white shadow rounded-lg">
+      <div className="max-h-[65vh] overflow-auto bg-white shadow rounded-lg">
         <table className="min-w-full border text-sm">
-          <thead className="bg-slate-100 text-left">
+          <thead className="sticky top-0 z-20 bg-slate-100 text-left shadow-sm">
             <tr>
-              {columns.map((column) => (
+              {displayedColumns.map((column) => (
                 <th
                   key={column}
                   onClick={() => toggleSort(column)}
@@ -624,6 +975,15 @@ export default function ReportDetail() {
                 >
                   <span className="inline-flex items-center gap-1">
                     {formatFieldLabel(column)}
+
+                    {isReadOnlyField(column) && (
+                      <span
+                        className="text-[10px] font-normal text-slate-400"
+                        title="Read-only field"
+                      >
+                        Read-only
+                      </span>
+                    )}
 
                     {sortField === column && (
                       <span className="text-xs">
@@ -658,9 +1018,13 @@ export default function ReportDetail() {
                             : ""
                   }`}
                 >
-                  {columns.map((column) => {
+                  {displayedColumns.map((column) => {
+                    const readOnly = isReadOnlyField(column);
+
                     const isEditing =
-                      editing?.cur_id === rowId && editing?.field === column;
+                      !readOnly &&
+                      editing?.cur_id === rowId &&
+                      editing?.field === column;
 
                     return (
                       <td
@@ -703,17 +1067,21 @@ export default function ReportDetail() {
                               ×
                             </button>
                           </div>
+                        ) : readOnly ? (
+                          <span
+                            className="block min-w-max text-slate-600"
+                            title="Read-only field"
+                          >
+                            {formatCellValue(column, row[column])}
+                          </span>
                         ) : (
                           <button
                             type="button"
                             onClick={() => startEdit(row, column)}
-                            className="text-left w-full"
+                            className="text-left w-full min-w-max"
                             title="Click to edit"
                           >
-                            {typeof row[column] === "object" &&
-                            row[column] !== null
-                              ? JSON.stringify(row[column])
-                              : String(row[column] ?? "")}
+                            {formatCellValue(column, row[column])}
                           </button>
                         )}
                       </td>
@@ -741,7 +1109,7 @@ export default function ReportDetail() {
             {processed.slice.length === 0 && (
               <tr>
                 <td
-                  colSpan={Math.max(columns.length + 1, 1)}
+                  colSpan={Math.max(displayedColumns.length + 1, 1)}
                   className="text-center py-6 text-slate-500"
                 >
                   {isZeroSales
@@ -831,6 +1199,19 @@ function MetadataItem({ icon = null, label, value }) {
       >
         {value ?? "-"}
       </div>
+    </div>
+  );
+}
+
+/* ======================================================================
+   TOTAL CARD
+====================================================================== */
+function TotalCard({ label, value }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="text-sm text-slate-500">{label}</div>
+
+      <div className="mt-1 text-xl font-semibold text-slate-900">{value}</div>
     </div>
   );
 }
