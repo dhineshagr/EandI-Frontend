@@ -121,6 +121,22 @@ function normalizeBoolean(value) {
   );
 }
 
+function getPeriodValue(item) {
+  return String(
+    item?.period ??
+      item?.Period ??
+      item?.accounting_period ??
+      item?.Accounting_Period ??
+      "",
+  ).trim();
+}
+
+function getLockedValue(item) {
+  return normalizeBoolean(
+    item?.is_locked ?? item?.Is_Locked ?? item?.locked ?? item?.Locked,
+  );
+}
+
 function isEmptyRow(row) {
   const values = Object.values(row);
 
@@ -303,12 +319,7 @@ export default function UploadDashboard() {
   -------------------------------------------------------------------- */
 
   const configuredPeriodSet = useMemo(
-    () =>
-      new Set(
-        accountingPeriods
-          .map((item) => String(item?.period ?? item?.Period ?? "").trim())
-          .filter(Boolean),
-      ),
+    () => new Set(accountingPeriods.map(getPeriodValue).filter(Boolean)),
     [accountingPeriods],
   );
 
@@ -316,10 +327,8 @@ export default function UploadDashboard() {
     () =>
       new Set(
         accountingPeriods
-          .filter((item) =>
-            normalizeBoolean(item?.is_locked ?? item?.Is_Locked),
-          )
-          .map((item) => String(item?.period ?? item?.Period ?? "").trim())
+          .filter(getLockedValue)
+          .map(getPeriodValue)
           .filter(Boolean),
       ),
     [accountingPeriods],
@@ -329,10 +338,8 @@ export default function UploadDashboard() {
     () =>
       new Set(
         accountingPeriods
-          .filter(
-            (item) => !normalizeBoolean(item?.is_locked ?? item?.Is_Locked),
-          )
-          .map((item) => String(item?.period ?? item?.Period ?? "").trim())
+          .filter((item) => !getLockedValue(item))
+          .map(getPeriodValue)
           .filter(Boolean),
       ),
     [accountingPeriods],
@@ -341,8 +348,8 @@ export default function UploadDashboard() {
   const lockedPeriods = useMemo(
     () =>
       accountingPeriods
-        .filter((item) => normalizeBoolean(item?.is_locked ?? item?.Is_Locked))
-        .map((item) => String(item?.period ?? item?.Period ?? "").trim())
+        .filter(getLockedValue)
+        .map(getPeriodValue)
         .filter(Boolean)
         .sort(),
     [accountingPeriods],
@@ -441,14 +448,19 @@ export default function UploadDashboard() {
 
   const fetchAccountingPeriods = useCallback(async () => {
     try {
-      const data = await apiFetch(apiUrl("/reports/accounting-periods"));
+      /*
+       * Use the existing Upload Dashboard accounting-period endpoint.
+       * This preserves the endpoint and response format already used
+       * by the upload workflow.
+       */
+      const data = await apiFetch(apiUrl("/uploads/periods"));
 
       if (!data) {
         throw new Error("Your session may have expired. Please sign in again.");
       }
 
       /*
-       * Support the possible API response formats:
+       * Support all known response formats:
        *
        * { items: [...] }
        * { periods: [...] }
@@ -462,20 +474,15 @@ export default function UploadDashboard() {
             ? data
             : [];
 
+      console.log("Upload accounting periods:", periodItems);
+
       setAccountingPeriods(periodItems);
     } catch (error) {
       console.error("Failed to fetch accounting periods:", error);
 
       setAccountingPeriods([]);
-
-      toast({
-        title: "Unable to load accounting periods",
-        description:
-          error?.message || "Accounting-period status could not be loaded.",
-        variant: "destructive",
-      });
     }
-  }, [toast]);
+  }, []);
 
   /* ====================================================================
      INITIAL LOAD
