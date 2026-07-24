@@ -11,15 +11,50 @@
 // ✔ Zero Sales display and action handling
 // ✔ Period / Supplier / Contract columns
 // ✔ Linked Report # column
+// ✔ Dynamic current-page totals for Purchase $ and CAF $
+// ✔ Sticky/frozen table headers
+// ✔ Show/hide columns with localStorage persistence
 // ✔ Existing filters, sorting, export, download, and pagination preserved
 // ======================================================================
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
 
 import { apiFetch } from "../api/apiClient";
 import { apiUrl } from "../api/config";
+
+const TABLE_COLUMNS = [
+  { key: "report_number", label: "Report #" },
+  { key: "related_report_number", label: "Linked Report #" },
+  { key: "report_type", label: "Type" },
+  { key: "file_name", label: "File" },
+  { key: "period", label: "Period(s)" },
+  { key: "supplier_name", label: "Supplier" },
+  { key: "contract_id", label: "Contract" },
+  { key: "uploaded_by_display", label: "Uploaded By" },
+  { key: "uploaded_at_utc", label: "Uploaded At" },
+  { key: "report_status", label: "Status" },
+  { key: "passed_count", label: "Passed" },
+  { key: "failed_count", label: "Failed" },
+  { key: "approved_count", label: "Approved" },
+  { key: "total_purchase", label: "Total Purchase $" },
+  { key: "total_caf", label: "Total CAF $" },
+  { key: "actions", label: "Actions", noSort: true },
+];
+
+const DEFAULT_VISIBLE_COLUMNS = TABLE_COLUMNS.reduce((result, column) => {
+  result[column.key] = true;
+  return result;
+}, {});
+
+const COLUMN_STORAGE_KEY = "sspReportsVisibleColumns";
+
+const EMPTY_PAGE_TOTALS = {
+  record_count: 0,
+  total_purchase: 0,
+  total_caf: 0,
+};
 
 export default function SspReportsDashboard() {
   const navigate = useNavigate();
@@ -29,6 +64,7 @@ export default function SspReportsDashboard() {
   // -------------------------------------------------------------------
   const [reports, setReports] = useState([]);
   const [total, setTotal] = useState(0);
+  const [pageTotals, setPageTotals] = useState(EMPTY_PAGE_TOTALS);
   const [loading, setLoading] = useState(true);
 
   const [search, setSearch] = useState("");
@@ -49,34 +85,35 @@ export default function SspReportsDashboard() {
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+  const [showColumnMenu, setShowColumnMenu] = useState(false);
+
+  const [visibleColumns, setVisibleColumns] = useState(() => {
+    try {
+      const savedColumns = localStorage.getItem(COLUMN_STORAGE_KEY);
+
+      if (!savedColumns) {
+        return DEFAULT_VISIBLE_COLUMNS;
+      }
+
+      return {
+        ...DEFAULT_VISIBLE_COLUMNS,
+        ...JSON.parse(savedColumns),
+      };
+    } catch {
+      return DEFAULT_VISIBLE_COLUMNS;
+    }
+  });
 
   // ======================================================================
   // HELPERS
   // ======================================================================
 
-  /**
-   * Detect Zero Sales records based on the filename.
-   */
   const isZeroSalesReport = (report) =>
     String(report?.file_name || report?.filename || "")
       .trim()
       .toUpperCase()
       .startsWith("ZERO_SALES");
 
-  /**
-   * Convert internal report type values into user-friendly labels.
-   *
-   * Database:
-   * Members
-   * Accrual
-   * Return
-   *
-   * UI:
-   * Report
-   * Accrual
-   * Return
-   * Zero Sales
-   */
   const getReportTypeDisplay = (report) => {
     if (isZeroSalesReport(report)) {
       return "Zero Sales";
@@ -91,15 +128,6 @@ export default function SspReportsDashboard() {
     return reportType || "-";
   };
 
-  /**
-   * Return all periods for a report.
-   *
-   * New records:
-   * report.periods = ["2026-04", "2026-05"]
-   *
-   * Older records:
-   * report.period = "2026-04"
-   */
   const getReportPeriods = (report) => {
     if (Array.isArray(report?.periods) && report.periods.length > 0) {
       return report.periods
@@ -117,26 +145,17 @@ export default function SspReportsDashboard() {
     return [];
   };
 
-  /**
-   * Display selected periods as a comma-separated value.
-   */
   const getPeriodDisplay = (report) => {
     const periods = getReportPeriods(report);
     return periods.length > 0 ? periods.join(", ") : "-";
   };
 
-  /**
-   * Format currency values.
-   */
   const formatMoney = (value) =>
-    Number(value || 0).toLocaleString(undefined, {
+    Number(value || 0).toLocaleString("en-US", {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     });
 
-  /**
-   * Format date safely.
-   */
   const formatDate = (value) => {
     if (!value) return "-";
 
@@ -153,9 +172,6 @@ export default function SspReportsDashboard() {
     }
   };
 
-  /**
-   * Escape a value for CSV output.
-   */
   const escapeCsvValue = (value) => {
     const text = String(value ?? "")
       .replace(/"/g, '""')
@@ -163,6 +179,35 @@ export default function SspReportsDashboard() {
 
     return `"${text}"`;
   };
+
+  // ======================================================================
+  // COLUMN VISIBILITY
+  // ======================================================================
+  useEffect(() => {
+    try {
+      localStorage.setItem(COLUMN_STORAGE_KEY, JSON.stringify(visibleColumns));
+    } catch (err) {
+      console.warn("Unable to save SSP dashboard column settings:", err);
+    }
+  }, [visibleColumns]);
+
+  const toggleColumnVisibility = (columnKey) => {
+    setVisibleColumns((previous) => ({
+      ...previous,
+      [columnKey]: !previous[columnKey],
+    }));
+  };
+
+  const showAllColumns = () => {
+    setVisibleColumns({ ...DEFAULT_VISIBLE_COLUMNS });
+  };
+
+  const visibleTableColumns = useMemo(
+    () => TABLE_COLUMNS.filter((column) => visibleColumns[column.key]),
+    [visibleColumns],
+  );
+
+  const visibleColumnCount = Math.max(1, visibleTableColumns.length);
 
   // ======================================================================
   // FETCH REPORTS
@@ -189,10 +234,16 @@ export default function SspReportsDashboard() {
 
       setReports(Array.isArray(data.reports) ? data.reports : []);
       setTotal(Number(data.total || 0));
+      setPageTotals({
+        record_count: Number(data.page_totals?.record_count || 0),
+        total_purchase: Number(data.page_totals?.total_purchase || 0),
+        total_caf: Number(data.page_totals?.total_caf || 0),
+      });
     } catch (err) {
       console.error("❌ fetchReports error:", err);
       setReports([]);
       setTotal(0);
+      setPageTotals(EMPTY_PAGE_TOTALS);
     } finally {
       setLoading(false);
     }
@@ -217,8 +268,8 @@ export default function SspReportsDashboard() {
   // ======================================================================
   // FILTER HANDLERS
   // ======================================================================
-  const handleFilterChange = (e) => {
-    const { name, value } = e.target;
+  const handleFilterChange = (event) => {
+    const { name, value } = event.target;
 
     setFilters((previous) => ({
       ...previous,
@@ -371,11 +422,9 @@ export default function SspReportsDashboard() {
   // PAGINATION
   // ======================================================================
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
-
   const start = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const end = Math.min(page * pageSize, total);
 
-  // Correct the page if the current page becomes invalid after filtering.
   useEffect(() => {
     if (page > totalPages) {
       setPage(totalPages);
@@ -403,8 +452,8 @@ export default function SspReportsDashboard() {
             type="text"
             placeholder="Search by Report #, Linked Report #, File, Period, Supplier, Contract, or Uploaded By"
             value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
+            onChange={(event) => {
+              setSearch(event.target.value);
               setPage(1);
             }}
             className="border p-2 rounded col-span-2 md:col-span-4"
@@ -475,7 +524,48 @@ export default function SspReportsDashboard() {
           />
         </div>
 
-        <div className="flex justify-end">
+        <div className="flex flex-wrap justify-end gap-3">
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowColumnMenu((previous) => !previous)}
+              className="border border-slate-300 px-4 py-2 rounded hover:bg-slate-100"
+            >
+              Show / Hide Columns
+            </button>
+
+            {showColumnMenu && (
+              <div className="absolute right-0 z-50 mt-2 max-h-96 w-64 overflow-y-auto rounded border bg-white p-3 shadow-lg">
+                <div className="mb-2 flex items-center justify-between border-b pb-2">
+                  <span className="font-medium">Visible Columns</span>
+
+                  <button
+                    type="button"
+                    onClick={showAllColumns}
+                    className="text-xs text-blue-600 underline"
+                  >
+                    Show All
+                  </button>
+                </div>
+
+                {TABLE_COLUMNS.map((column) => (
+                  <label
+                    key={column.key}
+                    className="flex cursor-pointer items-center gap-2 py-1 text-sm"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={Boolean(visibleColumns[column.key])}
+                      onChange={() => toggleColumnVisibility(column.key)}
+                    />
+
+                    <span>{column.label}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+
           <button
             type="button"
             onClick={clearFilters}
@@ -486,66 +576,44 @@ export default function SspReportsDashboard() {
         </div>
       </div>
 
+      {/* CURRENT PAGE TOTALS */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="rounded border bg-white p-4 shadow-sm">
+          <div className="text-sm text-slate-500">Records on Current Page</div>
+          <div className="mt-1 text-xl font-semibold">
+            {pageTotals.record_count}
+          </div>
+        </div>
+
+        <div className="rounded border bg-white p-4 shadow-sm">
+          <div className="text-sm text-slate-500">
+            Current Page Purchase Total
+          </div>
+          <div className="mt-1 text-xl font-semibold">
+            ${formatMoney(pageTotals.total_purchase)}
+          </div>
+        </div>
+
+        <div className="rounded border bg-white p-4 shadow-sm">
+          <div className="text-sm text-slate-500">Current Page CAF Total</div>
+          <div className="mt-1 text-xl font-semibold">
+            ${formatMoney(pageTotals.total_caf)}
+          </div>
+        </div>
+      </div>
+
       {/* REPORT TABLE */}
-      <div className="bg-white shadow rounded overflow-x-auto">
+      <div className="max-h-[65vh] overflow-auto rounded bg-white shadow">
         <table className="min-w-full border text-sm">
-          <thead className="bg-slate-100">
+          <thead className="sticky top-0 z-20 bg-slate-100">
             <tr>
-              {[
-                { key: "report_number", label: "Report #" },
-                {
-                  key: "related_report_number",
-                  label: "Linked Report #",
-                },
-                { key: "report_type", label: "Type" },
-                { key: "file_name", label: "File" },
-                { key: "period", label: "Period(s)" },
-                { key: "supplier_name", label: "Supplier" },
-                { key: "contract_id", label: "Contract" },
-                {
-                  key: "uploaded_by_display",
-                  label: "Uploaded By",
-                },
-                {
-                  key: "uploaded_at_utc",
-                  label: "Uploaded At",
-                },
-                {
-                  key: "report_status",
-                  label: "Status",
-                },
-                {
-                  key: "passed_count",
-                  label: "Passed",
-                },
-                {
-                  key: "failed_count",
-                  label: "Failed",
-                },
-                {
-                  key: "approved_count",
-                  label: "Approved",
-                },
-                {
-                  key: "total_purchase",
-                  label: "Total Purchase $",
-                },
-                {
-                  key: "total_caf",
-                  label: "Total CAF $",
-                },
-                {
-                  key: "actions",
-                  label: "Actions",
-                  noSort: true,
-                },
-              ].map((column) => (
+              {visibleTableColumns.map((column) => (
                 <th
                   key={column.key}
                   onClick={
                     column.noSort ? undefined : () => handleSort(column.key)
                   }
-                  className={`px-3 py-2 border whitespace-nowrap ${
+                  className={`sticky top-0 z-20 border bg-slate-100 px-3 py-2 whitespace-nowrap ${
                     column.noSort
                       ? ""
                       : "cursor-pointer select-none hover:bg-slate-200"
@@ -563,13 +631,19 @@ export default function SspReportsDashboard() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={16} className="text-center py-6 text-slate-500">
+                <td
+                  colSpan={visibleColumnCount}
+                  className="text-center py-6 text-slate-500"
+                >
                   Loading reports...
                 </td>
               </tr>
             ) : reports.length === 0 ? (
               <tr>
-                <td colSpan={16} className="text-center py-6 text-slate-500">
+                <td
+                  colSpan={visibleColumnCount}
+                  className="text-center py-6 text-slate-500"
+                >
                   No reports found
                 </td>
               </tr>
@@ -589,145 +663,174 @@ export default function SspReportsDashboard() {
                   "staged",
                 ].includes(status);
 
-                // Zero Sales reports have no detail rows.
                 const disableViewDetails = isProcessing || isZeroSales;
-
-                // VRF download is unavailable while processing and for Zero Sales.
                 const disableDownload = isProcessing || isZeroSales;
 
                 return (
                   <tr key={report.report_number} className="hover:bg-slate-50">
-                    <td className="border px-3 py-2">{report.report_number}</td>
+                    {visibleColumns.report_number && (
+                      <td className="border px-3 py-2">
+                        {report.report_number}
+                      </td>
+                    )}
 
-                    <td className="border px-3 py-2">
-                      {report.related_report_number || "-"}
-                    </td>
+                    {visibleColumns.related_report_number && (
+                      <td className="border px-3 py-2">
+                        {report.related_report_number || "-"}
+                      </td>
+                    )}
 
-                    <td className="border px-3 py-2">
-                      {getReportTypeDisplay(report)}
-                    </td>
+                    {visibleColumns.report_type && (
+                      <td className="border px-3 py-2">
+                        {getReportTypeDisplay(report)}
+                      </td>
+                    )}
 
-                    <td className="border px-3 py-2">
-                      {report.file_name || "-"}
-                    </td>
+                    {visibleColumns.file_name && (
+                      <td className="border px-3 py-2">
+                        {report.file_name || "-"}
+                      </td>
+                    )}
 
-                    <td className="border px-3 py-2">
-                      <div
-                        className="max-w-xs whitespace-normal"
-                        title={getPeriodDisplay(report)}
-                      >
-                        {getPeriodDisplay(report)}
-                      </div>
-                    </td>
-
-                    <td className="border px-3 py-2">
-                      <div>
-                        <div className="font-medium">
-                          {report.supplier_name || report.bp_code || "-"}
+                    {visibleColumns.period && (
+                      <td className="border px-3 py-2">
+                        <div
+                          className="max-w-xs whitespace-normal"
+                          title={getPeriodDisplay(report)}
+                        >
+                          {getPeriodDisplay(report)}
                         </div>
+                      </td>
+                    )}
 
-                        {report.supplier_name && report.bp_code && (
-                          <div className="text-xs text-slate-500">
-                            {report.bp_code}
+                    {visibleColumns.supplier_name && (
+                      <td className="border px-3 py-2">
+                        <div>
+                          <div className="font-medium">
+                            {report.supplier_name || report.bp_code || "-"}
                           </div>
-                        )}
-                      </div>
-                    </td>
 
-                    <td className="border px-3 py-2">
-                      {report.contract_id || "-"}
-                    </td>
+                          {report.supplier_name && report.bp_code && (
+                            <div className="text-xs text-slate-500">
+                              {report.bp_code}
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                    )}
 
-                    <td className="border px-3 py-2">
-                      {report.uploaded_by_display ||
-                        report.uploaded_by_name ||
-                        report.uploaded_by ||
-                        "System"}
-                    </td>
+                    {visibleColumns.contract_id && (
+                      <td className="border px-3 py-2">
+                        {report.contract_id || "-"}
+                      </td>
+                    )}
 
-                    <td className="border px-3 py-2 whitespace-nowrap">
-                      {formatDate(report.uploaded_at_utc)}
-                    </td>
+                    {visibleColumns.uploaded_by_display && (
+                      <td className="border px-3 py-2">
+                        {report.uploaded_by_display ||
+                          report.uploaded_by_name ||
+                          report.uploaded_by ||
+                          "System"}
+                      </td>
+                    )}
 
-                    <td className="border px-3 py-2 capitalize">
-                      {status || "submitted"}
-                    </td>
+                    {visibleColumns.uploaded_at_utc && (
+                      <td className="border px-3 py-2 whitespace-nowrap">
+                        {formatDate(report.uploaded_at_utc)}
+                      </td>
+                    )}
 
-                    <td className="border px-3 py-2 text-center">
-                      {report.passed_count ?? 0}
-                    </td>
+                    {visibleColumns.report_status && (
+                      <td className="border px-3 py-2 capitalize">
+                        {status || "submitted"}
+                      </td>
+                    )}
 
-                    <td className="border px-3 py-2 text-center">
-                      {report.failed_count ?? 0}
-                    </td>
+                    {visibleColumns.passed_count && (
+                      <td className="border px-3 py-2 text-center">
+                        {report.passed_count ?? 0}
+                      </td>
+                    )}
 
-                    <td className="border px-3 py-2 text-center">
-                      {report.approved_count ?? 0}
-                    </td>
+                    {visibleColumns.failed_count && (
+                      <td className="border px-3 py-2 text-center">
+                        {report.failed_count ?? 0}
+                      </td>
+                    )}
 
-                    <td className="border px-3 py-2 text-right whitespace-nowrap">
-                      {formatMoney(report.total_purchase)}
-                    </td>
+                    {visibleColumns.approved_count && (
+                      <td className="border px-3 py-2 text-center">
+                        {report.approved_count ?? 0}
+                      </td>
+                    )}
 
-                    <td className="border px-3 py-2 text-right whitespace-nowrap">
-                      {formatMoney(report.total_caf)}
-                    </td>
+                    {visibleColumns.total_purchase && (
+                      <td className="border px-3 py-2 text-right whitespace-nowrap">
+                        {formatMoney(report.total_purchase)}
+                      </td>
+                    )}
 
-                    <td className="border px-3 py-2 whitespace-nowrap">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (disableViewDetails) return;
+                    {visibleColumns.total_caf && (
+                      <td className="border px-3 py-2 text-right whitespace-nowrap">
+                        {formatMoney(report.total_caf)}
+                      </td>
+                    )}
 
-                          navigate(`/reports/${report.report_number}`);
-                        }}
-                        disabled={disableViewDetails}
-                        className={
-                          disableViewDetails
-                            ? "text-gray-400 cursor-not-allowed text-xs"
-                            : "text-blue-600 text-xs underline"
-                        }
-                        title={
-                          isZeroSales
-                            ? "Zero Sales declaration has no detail rows."
+                    {visibleColumns.actions && (
+                      <td className="border px-3 py-2 whitespace-nowrap">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (disableViewDetails) return;
+                            navigate(`/reports/${report.report_number}`);
+                          }}
+                          disabled={disableViewDetails}
+                          className={
+                            disableViewDetails
+                              ? "text-gray-400 cursor-not-allowed text-xs"
+                              : "text-blue-600 text-xs underline"
+                          }
+                          title={
+                            isZeroSales
+                              ? "Zero Sales declaration has no detail rows."
+                              : isProcessing
+                                ? "Report is not ready yet."
+                                : "View report details"
+                          }
+                        >
+                          {isZeroSales
+                            ? "Zero Sales Submitted"
                             : isProcessing
-                              ? "Report is not ready yet."
-                              : "View report details"
-                        }
-                      >
-                        {isZeroSales
-                          ? "Zero Sales Submitted"
-                          : isProcessing
-                            ? "Processing..."
-                            : "View Details"}
-                      </button>
+                              ? "Processing..."
+                              : "View Details"}
+                        </button>
 
-                      <br />
+                        <br />
 
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (disableDownload) return;
-
-                          handleDownloadDetail(report.report_number);
-                        }}
-                        disabled={disableDownload}
-                        className={
-                          disableDownload
-                            ? "text-gray-400 cursor-not-allowed text-xs"
-                            : "text-emerald-600 text-xs underline"
-                        }
-                        title={
-                          isZeroSales
-                            ? "Zero Sales declaration has no VRF detail rows."
-                            : isProcessing
-                              ? "Report is not ready yet."
-                              : "Download VRF CSV"
-                        }
-                      >
-                        Download VRF CSV
-                      </button>
-                    </td>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (disableDownload) return;
+                            handleDownloadDetail(report.report_number);
+                          }}
+                          disabled={disableDownload}
+                          className={
+                            disableDownload
+                              ? "text-gray-400 cursor-not-allowed text-xs"
+                              : "text-emerald-600 text-xs underline"
+                          }
+                          title={
+                            isZeroSales
+                              ? "Zero Sales declaration has no VRF detail rows."
+                              : isProcessing
+                                ? "Report is not ready yet."
+                                : "Download VRF CSV"
+                          }
+                        >
+                          Download VRF CSV
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 );
               })
@@ -748,8 +851,8 @@ export default function SspReportsDashboard() {
 
             <select
               value={pageSize}
-              onChange={(e) => {
-                setPageSize(Number(e.target.value));
+              onChange={(event) => {
+                setPageSize(Number(event.target.value));
                 setPage(1);
               }}
               className="border p-1 rounded"
