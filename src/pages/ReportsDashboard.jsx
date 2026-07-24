@@ -25,6 +25,7 @@ import {
   AlertTriangle,
   Columns3,
   ChevronDown,
+  Trash2,
 } from "lucide-react";
 
 import { apiFetch } from "../api/apiClient";
@@ -113,6 +114,12 @@ export default function ReportsDashboard() {
   // Column visibility
   const [showColumnMenu, setShowColumnMenu] = useState(false);
   const [visibleColumns, setVisibleColumns] = useState(loadVisibleColumns);
+
+  // Delete report modal
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleteReason, setDeleteReason] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
 
   // ======================================================================
   // HELPERS
@@ -380,6 +387,71 @@ export default function ReportsDashboard() {
 
   const resetColumns = () => {
     setVisibleColumns(createDefaultVisibleColumns());
+  };
+
+  // ======================================================================
+  // DELETE REPORT
+  // ======================================================================
+  const openDeleteModal = (report) => {
+    setDeleteTarget(report);
+    setDeleteReason("");
+    setDeleteError("");
+  };
+
+  const closeDeleteModal = () => {
+    if (deleting) {
+      return;
+    }
+
+    setDeleteTarget(null);
+    setDeleteReason("");
+    setDeleteError("");
+  };
+
+  const deleteReport = async () => {
+    if (!deleteTarget?.report_number || deleting) {
+      return;
+    }
+
+    const reason = deleteReason.trim();
+
+    if (reason.length < 5) {
+      setDeleteError(
+        "Please enter a deletion reason with at least 5 characters.",
+      );
+      return;
+    }
+
+    setDeleting(true);
+    setDeleteError("");
+
+    try {
+      await apiFetch(apiUrl(`/reports/${deleteTarget.report_number}`), {
+        method: "DELETE",
+        body: JSON.stringify({
+          reason,
+        }),
+      });
+
+      setDeleteTarget(null);
+      setDeleteReason("");
+      setDeleteError("");
+
+      await fetchReports();
+
+      alert(
+        `✅ Report #${deleteTarget.report_number} was deleted successfully.`,
+      );
+    } catch (error) {
+      console.error("❌ Delete report failed:", error);
+
+      setDeleteError(
+        error?.message ||
+          "The report could not be deleted. Please verify its status and try again.",
+      );
+    } finally {
+      setDeleting(false);
+    }
   };
 
   // ======================================================================
@@ -784,35 +856,56 @@ export default function ReportsDashboard() {
 
                   {visibleColumns.action && (
                     <td className="border px-3 py-2 whitespace-nowrap">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (disableViewDetails) {
-                            return;
-                          }
+                      <div className="flex flex-col items-start gap-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (disableViewDetails) {
+                              return;
+                            }
 
-                          navigate(`/reports/${report.report_number}`);
-                        }}
-                        disabled={disableViewDetails}
-                        className={
-                          disableViewDetails
-                            ? "cursor-not-allowed text-gray-400"
-                            : "text-indigo-600 underline"
-                        }
-                        title={
-                          isZeroSales
-                            ? "Zero Sales declaration has no detail rows."
+                            navigate(`/reports/${report.report_number}`);
+                          }}
+                          disabled={disableViewDetails}
+                          className={
+                            disableViewDetails
+                              ? "cursor-not-allowed text-gray-400"
+                              : "text-indigo-600 underline"
+                          }
+                          title={
+                            isZeroSales
+                              ? "Zero Sales declaration has no detail rows."
+                              : isProcessing
+                                ? "Report is still processing. Please wait and refresh."
+                                : "View report details"
+                          }
+                        >
+                          {isZeroSales
+                            ? "Zero Sales Submitted"
                             : isProcessing
-                              ? "Report is still processing. Please wait and refresh."
-                              : "View report details"
-                        }
-                      >
-                        {isZeroSales
-                          ? "Zero Sales Submitted"
-                          : isProcessing
-                            ? "Processing..."
-                            : "View Details"}
-                      </button>
+                              ? "Processing..."
+                              : "View Details"}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => openDeleteModal(report)}
+                          disabled={status === "approved"}
+                          className={
+                            status === "approved"
+                              ? "inline-flex cursor-not-allowed items-center gap-1 text-gray-400"
+                              : "inline-flex items-center gap-1 text-red-600 hover:underline"
+                          }
+                          title={
+                            status === "approved"
+                              ? "Approved reports cannot be deleted."
+                              : "Delete this incorrect report"
+                          }
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          Delete
+                        </button>
+                      </div>
                     </td>
                   )}
                 </tr>
@@ -889,6 +982,100 @@ export default function ReportsDashboard() {
           </button>
         </div>
       </div>
+
+      {/* DELETE REPORT MODAL */}
+      {deleteTarget && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-report-title"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closeDeleteModal();
+            }
+          }}
+        >
+          <div className="w-full max-w-lg rounded-lg bg-white shadow-2xl">
+            <div className="border-b border-slate-200 px-6 py-4">
+              <h2
+                id="delete-report-title"
+                className="text-xl font-semibold text-slate-900"
+              >
+                Delete Report #{deleteTarget.report_number}
+              </h2>
+
+              <p className="mt-1 text-sm text-slate-600">
+                This permanently removes the report and its related data. This
+                action cannot be undone.
+              </p>
+            </div>
+
+            <div className="space-y-4 px-6 py-5">
+              <div className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                The report header, detail rows, staging rows, accounting-period
+                mappings, and report audit entries will be deleted.
+              </div>
+
+              <div>
+                <label
+                  htmlFor="delete-report-reason"
+                  className="mb-1 block text-sm font-medium text-slate-700"
+                >
+                  Deletion reason
+                </label>
+
+                <textarea
+                  id="delete-report-reason"
+                  value={deleteReason}
+                  onChange={(event) => {
+                    setDeleteReason(event.target.value);
+                    setDeleteError("");
+                  }}
+                  rows={4}
+                  maxLength={500}
+                  placeholder="Example: Incorrect supplier file was uploaded and must be reuploaded."
+                  className="w-full rounded border border-slate-300 px-3 py-2 focus:border-red-500 focus:outline-none focus:ring-1 focus:ring-red-500"
+                  disabled={deleting}
+                  autoFocus
+                />
+
+                <div className="mt-1 flex justify-between text-xs text-slate-500">
+                  <span>Minimum 5 characters</span>
+                  <span>{deleteReason.length}/500</span>
+                </div>
+              </div>
+
+              {deleteError && (
+                <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                  {deleteError}
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-3 border-t border-slate-200 px-6 py-4">
+              <button
+                type="button"
+                onClick={closeDeleteModal}
+                disabled={deleting}
+                className="rounded border border-slate-300 px-4 py-2 text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={deleteReport}
+                disabled={deleting || deleteReason.trim().length < 5}
+                className="inline-flex items-center gap-2 rounded bg-red-600 px-4 py-2 font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-300"
+              >
+                <Trash2 className="h-4 w-4" />
+                {deleting ? "Deleting..." : "Delete Report"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
