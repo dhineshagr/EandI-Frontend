@@ -639,7 +639,56 @@ export default function ManualReportCreate() {
       periods: previous.periods.filter((period) => period !== periodToRemove),
     }));
   };
+  const loadContractsForSupplier = async (supplierCode) => {
+    const normalizedSupplierCode = String(supplierCode || "").trim();
 
+    setForm((previous) => ({
+      ...previous,
+      contract_id: "",
+    }));
+
+    setContractOptions([]);
+    setShowContractOptions(false);
+
+    if (!normalizedSupplierCode) {
+      return;
+    }
+
+    try {
+      const data = await apiFetch(
+        apiUrl(
+          `/uploads/lookups/contracts?bp_code=${encodeURIComponent(
+            normalizedSupplierCode,
+          )}`,
+        ),
+      );
+
+      const contractItems = Array.isArray(data?.items) ? data.items : [];
+
+      setContractOptions(contractItems);
+
+      if (data?.default_contract_id) {
+        setForm((previous) => ({
+          ...previous,
+          contract_id: String(data.default_contract_id),
+        }));
+      } else if (contractItems.length > 0) {
+        setForm((previous) => ({
+          ...previous,
+          contract_id: String(contractItems[0].contract_id),
+        }));
+      }
+    } catch (lookupError) {
+      console.error("Supplier contract lookup failed:", lookupError);
+
+      setContractOptions([]);
+
+      setForm((previous) => ({
+        ...previous,
+        contract_id: "",
+      }));
+    }
+  };
   // ====================================================================
   // SUPPLIER LOOKUP
   // ====================================================================
@@ -693,7 +742,9 @@ export default function ManualReportCreate() {
       contract_id: value,
     }));
 
-    if (!value || value.trim().length < 1) {
+    const selectedSupplierCode = String(form.bp_code || "").trim();
+
+    if (!selectedSupplierCode) {
       setContractOptions([]);
       setShowContractOptions(false);
 
@@ -702,7 +753,11 @@ export default function ManualReportCreate() {
 
     try {
       const data = await apiFetch(
-        apiUrl(`/uploads/lookups/contracts?q=${encodeURIComponent(value)}`),
+        apiUrl(
+          `/uploads/lookups/contracts?bp_code=${encodeURIComponent(
+            selectedSupplierCode,
+          )}&q=${encodeURIComponent(value || "")}`,
+        ),
       );
 
       setContractOptions(Array.isArray(data?.items) ? data.items : []);
@@ -1399,15 +1454,20 @@ export default function ManualReportCreate() {
                         key={supplier.bp_code}
                         type="button"
                         onMouseDown={(event) => event.preventDefault()}
-                        onClick={() => {
+                        onClick={async () => {
+                          const selectedSupplierCode = String(
+                            supplier.bp_code || "",
+                          ).trim();
+
                           setForm((previous) => ({
                             ...previous,
-                            bp_code: supplier.bp_code,
+                            bp_code: selectedSupplierCode,
                             contract_id: "",
                           }));
 
-                          setContractOptions([]);
                           setShowSupplierOptions(false);
+
+                          await loadContractsForSupplier(selectedSupplierCode);
                         }}
                         className="w-full px-3 py-2 text-left text-sm hover:bg-emerald-50"
                       >
