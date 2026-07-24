@@ -302,30 +302,24 @@ export default function UploadDashboard() {
      LOCKED PERIODS
   -------------------------------------------------------------------- */
 
-  const lockedPeriodSet = useMemo(
-    () =>
-      new Set(
-        accountingPeriods
-          .filter((item) => normalizeBoolean(item?.is_locked))
-          .map((item) => String(item.period)),
-      ),
-    [accountingPeriods],
-  );
-
-  const lockedPeriods = useMemo(
-    () =>
-      accountingPeriods
-        .filter((item) => normalizeBoolean(item?.is_locked))
-        .map((item) => String(item.period))
-        .sort(),
-    [accountingPeriods],
-  );
-
   const configuredPeriodSet = useMemo(
     () =>
       new Set(
         accountingPeriods
-          .map((item) => String(item?.period || "").trim())
+          .map((item) => String(item?.period ?? item?.Period ?? "").trim())
+          .filter(Boolean),
+      ),
+    [accountingPeriods],
+  );
+
+  const lockedPeriodSet = useMemo(
+    () =>
+      new Set(
+        accountingPeriods
+          .filter((item) =>
+            normalizeBoolean(item?.is_locked ?? item?.Is_Locked),
+          )
+          .map((item) => String(item?.period ?? item?.Period ?? "").trim())
           .filter(Boolean),
       ),
     [accountingPeriods],
@@ -335,13 +329,24 @@ export default function UploadDashboard() {
     () =>
       new Set(
         accountingPeriods
-          .filter((item) => !normalizeBoolean(item?.is_locked))
-          .map((item) => String(item?.period || "").trim())
+          .filter(
+            (item) => !normalizeBoolean(item?.is_locked ?? item?.Is_Locked),
+          )
+          .map((item) => String(item?.period ?? item?.Period ?? "").trim())
           .filter(Boolean),
       ),
     [accountingPeriods],
   );
 
+  const lockedPeriods = useMemo(
+    () =>
+      accountingPeriods
+        .filter((item) => normalizeBoolean(item?.is_locked ?? item?.Is_Locked))
+        .map((item) => String(item?.period ?? item?.Period ?? "").trim())
+        .filter(Boolean)
+        .sort(),
+    [accountingPeriods],
+  );
   /* ====================================================================
      CONTRACTS FOR SUPPLIER
   ==================================================================== */
@@ -442,19 +447,35 @@ export default function UploadDashboard() {
         throw new Error("Your session may have expired. Please sign in again.");
       }
 
-      const periodItems = Array.isArray(data?.periods)
-        ? data.periods
-        : Array.isArray(data)
-          ? data
-          : [];
+      /*
+       * Support the possible API response formats:
+       *
+       * { items: [...] }
+       * { periods: [...] }
+       * [...]
+       */
+      const periodItems = Array.isArray(data?.items)
+        ? data.items
+        : Array.isArray(data?.periods)
+          ? data.periods
+          : Array.isArray(data)
+            ? data
+            : [];
 
       setAccountingPeriods(periodItems);
     } catch (error) {
       console.error("Failed to fetch accounting periods:", error);
 
       setAccountingPeriods([]);
+
+      toast({
+        title: "Unable to load accounting periods",
+        description:
+          error?.message || "Accounting-period status could not be loaded.",
+        variant: "destructive",
+      });
     }
-  }, []);
+  }, [toast]);
 
   /* ====================================================================
      INITIAL LOAD
