@@ -25,6 +25,8 @@ import ReportAuditLog from "./pages/ReportAuditLog";
 import SspReportsDashboard from "./pages/SspReportsDashboard";
 import ManualReportCreate from "./pages/ManualReportCreate";
 import ManageAccountingPeriods from "./pages/ManageAccountingPeriods";
+import DeletedReportsAuditLog from "./pages/DeletedReportsAuditLog";
+
 /* ===============================
    Layout with Header (Auth only)
 ================================ */
@@ -171,6 +173,14 @@ export default function App() {
             element={
               <ProtectedRoute requireInternal>
                 <ManageAccountingPeriods />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/report-delete-audit"
+            element={
+              <ProtectedRoute requireInternal>
+                <DeletedReportsAuditLog />
               </ProtectedRoute>
             }
           />

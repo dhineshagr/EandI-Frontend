@@ -121,7 +121,17 @@ export default function Header() {
                     SSP Reports Dashboard
                   </Link>
 
-                  <Link to="/manage-accounting-periods" className={isActive("/manage-accounting-periods")}>
+                  <Link
+                    to="/manage-accounting-periods"
+                    className={isActive("/manage-accounting-periods")}
+                  >
+                    Manage Accounting Periods
+                  </Link>
+
+                  <Link
+                    to="/report-delete-audit"
+                    className={isActive("/report-delete-audit")}
+                  >
                     Manage Accounting Periods
                   </Link>
                 </>
