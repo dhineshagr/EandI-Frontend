@@ -88,7 +88,7 @@ export default function ReportAuditLog() {
           .filter(Boolean)
           .join(" ")
           .toLowerCase()
-          .includes(q)
+          .includes(q),
       );
     }
 
@@ -161,71 +161,99 @@ export default function ReportAuditLog() {
       </div>
 
       {/* 📋 TABLE */}
-      <div className="bg-white shadow rounded overflow-x-auto">
-        <table className="min-w-full border text-sm">
-          <thead className="bg-slate-100">
-            <tr>
-              {[
-                { key: "audit_id", label: "ID" },
-                { key: "report_number", label: "Report #" },
-                { key: "row_key", label: "Row" },
-                { key: "field_name", label: "Field" },
-                { key: "old_value", label: "Old Value" },
-                { key: "new_value", label: "New Value" },
-                { key: "changed_by", label: "Changed By" },
-                { key: "change_reason", label: "Reason" },
-                { key: "changed_at_utc", label: "Changed At" },
-              ].map((col) => (
-                <th
-                  key={col.key}
-                  onClick={() => toggleSort(col.key)}
-                  className="px-3 py-2 border cursor-pointer select-none"
-                >
-                  <span className="inline-flex items-center gap-1">
-                    {col.label}
-                    {renderSortIcon(col.key)}
-                  </span>
-                </th>
-              ))}
-            </tr>
-          </thead>
-
-          <tbody>
-            {processed.slice.map((log) => (
-              <tr key={log.audit_id} className="hover:bg-slate-50">
-                <td className="px-3 py-2 border">{log.audit_id}</td>
-                <td className="px-3 py-2 border">{log.report_number}</td>
-                <td className="px-3 py-2 border">{log.row_key}</td>
-                <td className="px-3 py-2 border">{log.field_name}</td>
-                <td className="px-3 py-2 border">
-                  {log.old_value ?? <span className="text-slate-400">–</span>}
-                </td>
-                <td className="px-3 py-2 border">
-                  {log.new_value ?? <span className="text-slate-400">–</span>}
-                </td>
-                <td className="px-3 py-2 border">{log.changed_by}</td>
-                <td className="px-3 py-2 border">
-                  {log.change_reason ?? (
-                    <span className="text-slate-400">–</span>
-                  )}
-                </td>
-                <td className="px-3 py-2 border">
-                  {log.changed_at_utc
-                    ? new Date(log.changed_at_utc).toLocaleString()
-                    : "-"}
-                </td>
-              </tr>
-            ))}
-
-            {processed.slice.length === 0 && (
+      {/* 📋 TABLE */}
+      <div className="bg-white shadow rounded overflow-hidden">
+        <div className="max-h-[65vh] overflow-auto">
+          <table className="min-w-full border-collapse border text-sm">
+            <thead className="sticky top-0 z-20 bg-slate-100">
               <tr>
-                <td colSpan="9" className="text-center py-4 text-slate-500">
-                  No audit logs found
-                </td>
+                {[
+                  { key: "audit_id", label: "ID" },
+                  { key: "report_number", label: "Report #" },
+                  { key: "row_key", label: "Row" },
+                  { key: "field_name", label: "Field" },
+                  { key: "old_value", label: "Old Value" },
+                  { key: "new_value", label: "New Value" },
+                  { key: "changed_by", label: "Changed By" },
+                  { key: "change_reason", label: "Reason" },
+                  { key: "changed_at_utc", label: "Changed At" },
+                ].map((col) => (
+                  <th
+                    key={col.key}
+                    onClick={() => toggleSort(col.key)}
+                    className="
+                sticky top-0 z-20
+                bg-slate-100
+                px-3 py-2 border
+                cursor-pointer select-none
+                whitespace-nowrap
+                text-left
+              "
+                  >
+                    <span className="inline-flex items-center gap-1">
+                      {col.label}
+                      {renderSortIcon(col.key)}
+                    </span>
+                  </th>
+                ))}
               </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+
+            <tbody>
+              {processed.slice.map((log) => (
+                <tr key={log.audit_id} className="hover:bg-slate-50">
+                  <td className="px-3 py-2 border whitespace-nowrap">
+                    {log.audit_id}
+                  </td>
+
+                  <td className="px-3 py-2 border whitespace-nowrap">
+                    {log.report_number}
+                  </td>
+
+                  <td className="px-3 py-2 border whitespace-nowrap">
+                    {log.row_key}
+                  </td>
+
+                  <td className="px-3 py-2 border whitespace-nowrap">
+                    {log.field_name}
+                  </td>
+
+                  <td className="px-3 py-2 border min-w-[250px] whitespace-pre-wrap break-words">
+                    {log.old_value ?? <span className="text-slate-400">–</span>}
+                  </td>
+
+                  <td className="px-3 py-2 border min-w-[250px] whitespace-pre-wrap break-words">
+                    {log.new_value ?? <span className="text-slate-400">–</span>}
+                  </td>
+
+                  <td className="px-3 py-2 border whitespace-nowrap">
+                    {log.changed_by || "-"}
+                  </td>
+
+                  <td className="px-3 py-2 border min-w-[250px] whitespace-normal break-words">
+                    {log.change_reason ?? (
+                      <span className="text-slate-400">–</span>
+                    )}
+                  </td>
+
+                  <td className="px-3 py-2 border whitespace-nowrap">
+                    {log.changed_at_utc
+                      ? new Date(log.changed_at_utc).toLocaleString()
+                      : "-"}
+                  </td>
+                </tr>
+              ))}
+
+              {processed.slice.length === 0 && (
+                <tr>
+                  <td colSpan="9" className="text-center py-4 text-slate-500">
+                    No audit logs found
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* 📑 Pagination */}
@@ -252,7 +280,7 @@ export default function ReportAuditLog() {
               ? "0–0 of 0"
               : `${(page - 1) * pageSize + 1}–${Math.min(
                   page * pageSize,
-                  processed.total
+                  processed.total,
                 )} of ${processed.total}`}
           </span>
         </div>
