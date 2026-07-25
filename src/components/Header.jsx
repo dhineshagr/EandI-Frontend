@@ -132,7 +132,7 @@ export default function Header() {
                     to="/report-delete-audit"
                     className={isActive("/report-delete-audit")}
                   >
-                    Manage Accounting Periods
+                    Deleted Reports Audit Log
                   </Link>
                 </>
               )}
