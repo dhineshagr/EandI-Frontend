@@ -72,6 +72,12 @@ export default function ReportDetail() {
 
   const [editing, setEditing] = useState(null);
 
+  // Matched Member lookup
+  const [memberLookupItems, setMemberLookupItems] = useState([]);
+  const [memberLookupLoading, setMemberLookupLoading] = useState(false);
+  const [memberLookupError, setMemberLookupError] = useState("");
+  const [showMemberLookup, setShowMemberLookup] = useState(false);
+
   // Sorting and pagination
   const [sortField, setSortField] = useState(null);
   const [sortDir, setSortDir] = useState("asc");
@@ -467,6 +473,12 @@ export default function ReportDetail() {
       field,
       value: row[field] ?? "",
     });
+
+    setMemberLookupItems([]);
+    setMemberLookupError("");
+    setShowMemberLookup(
+      String(field || "").toLowerCase() === "matched_member_number",
+    );
   };
 
   const handleChange = (event) => {
@@ -478,6 +490,99 @@ export default function ReportDetail() {
 
   const cancelEdit = () => {
     setEditing(null);
+    setMemberLookupItems([]);
+    setMemberLookupError("");
+    setShowMemberLookup(false);
+  };
+
+  useEffect(() => {
+    const isMatchedMemberEdit =
+      String(editing?.field || "").toLowerCase() === "matched_member_number";
+
+    if (!isMatchedMemberEdit) {
+      setMemberLookupItems([]);
+      setMemberLookupError("");
+      setMemberLookupLoading(false);
+      setShowMemberLookup(false);
+      return undefined;
+    }
+
+    const searchValue = String(editing?.value || "").trim();
+
+    if (searchValue.length < 1) {
+      setMemberLookupItems([]);
+      setMemberLookupError("");
+      setMemberLookupLoading(false);
+      setShowMemberLookup(true);
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    const timer = window.setTimeout(async () => {
+      setMemberLookupLoading(true);
+      setMemberLookupError("");
+      setShowMemberLookup(true);
+
+      try {
+        const data = await apiFetch(
+          apiUrl(`/reports/member-lookup?q=${encodeURIComponent(searchValue)}`),
+        );
+
+        if (cancelled) {
+          return;
+        }
+
+        const items = Array.isArray(data?.items)
+          ? data.items
+          : Array.isArray(data?.members)
+            ? data.members
+            : Array.isArray(data?.rows)
+              ? data.rows
+              : [];
+
+        setMemberLookupItems(items);
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        console.error("❌ Member lookup failed:", error);
+        setMemberLookupItems([]);
+        setMemberLookupError(error?.message || "Unable to search members.");
+      } finally {
+        if (!cancelled) {
+          setMemberLookupLoading(false);
+        }
+      }
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [editing?.field, editing?.value]);
+
+  const selectMatchedMember = (member) => {
+    const selectedMemberNumber = String(
+      member?.member_number ??
+        member?.Member_Number ??
+        member?.memberNumber ??
+        "",
+    ).trim();
+
+    if (!selectedMemberNumber) {
+      return;
+    }
+
+    setEditing((previous) => ({
+      ...previous,
+      value: selectedMemberNumber,
+    }));
+
+    setMemberLookupItems([]);
+    setMemberLookupError("");
+    setShowMemberLookup(false);
   };
 
   const saveEdit = async () => {
@@ -494,6 +599,10 @@ export default function ReportDetail() {
       });
 
       setEditing(null);
+      setMemberLookupItems([]);
+      setMemberLookupError("");
+      setShowMemberLookup(false);
+
       await fetchData();
 
       alert("✅ Row updated successfully");
@@ -1072,28 +1181,134 @@ export default function ReportDetail() {
                         className="px-3 py-2 border align-top"
                       >
                         {isEditing ? (
-                          <div className="flex min-w-52 gap-2">
-                            <input
-                              value={editing.value}
-                              onChange={handleChange}
-                              className="min-w-40 rounded border px-2 py-1"
-                              autoFocus
-                              placeholder={
-                                String(column).toLowerCase() ===
-                                "matched_member_number"
-                                  ? "Enter member number"
-                                  : `Enter ${formatFieldLabel(column)}`
-                              }
-                              onKeyDown={(event) => {
-                                if (event.key === "Enter") {
-                                  saveEdit();
+                          <div className="relative flex min-w-[360px] gap-2">
+                            <div className="relative min-w-0 flex-1">
+                              <input
+                                value={editing.value}
+                                onChange={handleChange}
+                                onFocus={() => {
+                                  if (
+                                    String(column).toLowerCase() ===
+                                    "matched_member_number"
+                                  ) {
+                                    setShowMemberLookup(true);
+                                  }
+                                }}
+                                className="w-full min-w-48 rounded border px-2 py-1"
+                                autoFocus
+                                autoComplete="off"
+                                placeholder={
+                                  String(column).toLowerCase() ===
+                                  "matched_member_number"
+                                    ? "Search member number or name"
+                                    : `Enter ${formatFieldLabel(column)}`
                                 }
+                                onKeyDown={(event) => {
+                                  if (event.key === "Enter") {
+                                    if (
+                                      String(column).toLowerCase() !==
+                                        "matched_member_number" ||
+                                      memberLookupItems.length === 0
+                                    ) {
+                                      saveEdit();
+                                    }
+                                  }
 
-                                if (event.key === "Escape") {
-                                  cancelEdit();
-                                }
-                              }}
-                            />
+                                  if (event.key === "Escape") {
+                                    cancelEdit();
+                                  }
+                                }}
+                              />
+
+                              {String(column).toLowerCase() ===
+                                "matched_member_number" &&
+                                showMemberLookup && (
+                                  <div className="absolute left-0 right-0 z-[100] mt-1 max-h-64 overflow-y-auto rounded-md border border-slate-200 bg-white shadow-xl">
+                                    {memberLookupLoading && (
+                                      <div className="px-3 py-2 text-sm text-slate-500">
+                                        Searching members...
+                                      </div>
+                                    )}
+
+                                    {!memberLookupLoading &&
+                                      memberLookupError && (
+                                        <div className="px-3 py-2 text-sm text-red-600">
+                                          {memberLookupError}
+                                        </div>
+                                      )}
+
+                                    {!memberLookupLoading &&
+                                      !memberLookupError &&
+                                      memberLookupItems.map(
+                                        (member, memberIndex) => {
+                                          const memberNumber = String(
+                                            member?.member_number ??
+                                              member?.Member_Number ??
+                                              member?.memberNumber ??
+                                              "",
+                                          ).trim();
+
+                                          const memberName = String(
+                                            member?.member_name ??
+                                              member?.Member_Name ??
+                                              member?.memberName ??
+                                              "",
+                                          ).trim();
+
+                                          const memberStatus = String(
+                                            member?.status ??
+                                              member?.Status ??
+                                              "",
+                                          ).trim();
+
+                                          return (
+                                            <button
+                                              key={`${memberNumber}-${memberIndex}`}
+                                              type="button"
+                                              onMouseDown={(event) =>
+                                                event.preventDefault()
+                                              }
+                                              onClick={() =>
+                                                selectMatchedMember(member)
+                                              }
+                                              className="block w-full border-b border-slate-100 px-3 py-2 text-left text-sm last:border-b-0 hover:bg-emerald-50"
+                                            >
+                                              <div className="font-medium text-slate-800">
+                                                {memberNumber || "-"}
+                                                {memberName
+                                                  ? ` — ${memberName}`
+                                                  : ""}
+                                              </div>
+
+                                              {memberStatus && (
+                                                <div className="mt-0.5 text-xs text-slate-500">
+                                                  Status: {memberStatus}
+                                                </div>
+                                              )}
+                                            </button>
+                                          );
+                                        },
+                                      )}
+
+                                    {!memberLookupLoading &&
+                                      !memberLookupError &&
+                                      String(editing.value || "").trim() &&
+                                      memberLookupItems.length === 0 && (
+                                        <div className="px-3 py-2 text-sm text-slate-500">
+                                          No matching members found.
+                                        </div>
+                                      )}
+
+                                    {!memberLookupLoading &&
+                                      !memberLookupError &&
+                                      !String(editing.value || "").trim() && (
+                                        <div className="px-3 py-2 text-sm text-slate-500">
+                                          Enter a member number or member name.
+                                        </div>
+                                      )}
+                                  </div>
+                                )}
+                            </div>
 
                             <button
                               type="button"
@@ -1126,7 +1341,13 @@ export default function ReportDetail() {
                           <button
                             type="button"
                             onClick={() => startEdit(row, column)}
-                            className="block min-h-[32px] min-w-[140px] w-full rounded px-2 py-1 text-left hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                            className="
+                              block min-h-[32px] min-w-[140px] w-full
+                              rounded px-2 py-1 text-left
+                              hover:bg-slate-100
+                              focus:outline-none focus:ring-2
+                              focus:ring-emerald-300
+                            "
                             title="Click to edit"
                           >
                             {formatCellValue(column, row[column]) || (
