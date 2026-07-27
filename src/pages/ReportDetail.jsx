@@ -727,32 +727,6 @@ export default function ReportDetail() {
   // ======================================================================
   // TOTALS
   // ======================================================================
-  const overallTotals = useMemo(
-    () =>
-      rows.reduce(
-        (totals, row) => {
-          totals.purchase += getPurchaseValue(row);
-          totals.caf += getCafValue(row);
-          return totals;
-        },
-        { purchase: 0, caf: 0 },
-      ),
-    [rows],
-  );
-
-  const filteredTotals = useMemo(
-    () =>
-      processed.filteredRows.reduce(
-        (totals, row) => {
-          totals.purchase += getPurchaseValue(row);
-          totals.caf += getCafValue(row);
-          return totals;
-        },
-        { purchase: 0, caf: 0 },
-      ),
-    [processed.filteredRows],
-  );
-
   const currentPageTotals = useMemo(
     () =>
       processed.slice.reduce(
@@ -948,25 +922,11 @@ export default function ReportDetail() {
       </div>
 
       {/* FINANCIAL TOTALS */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-6">
+      {/* CURRENT PAGE TOTALS */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <TotalCard
-          label="Overall Purchase Total"
-          value={`$${formatMoney(overallTotals.purchase)}`}
-        />
-
-        <TotalCard
-          label="Overall CAF Total"
-          value={`$${formatMoney(overallTotals.caf)}`}
-        />
-
-        <TotalCard
-          label="Filtered Purchase Total"
-          value={`$${formatMoney(filteredTotals.purchase)}`}
-        />
-
-        <TotalCard
-          label="Filtered CAF Total"
-          value={`$${formatMoney(filteredTotals.caf)}`}
+          label="Records on Current Page"
+          value={processed.slice.length}
         />
 
         <TotalCard
