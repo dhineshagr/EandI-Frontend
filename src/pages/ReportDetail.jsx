@@ -47,6 +47,7 @@ const READ_ONLY_FIELDS = new Set([
   "approved_at_utc",
   "created_at_utc",
   "updated_at_utc",
+  "matched_member_name",
 ]);
 
 const COLUMN_STORAGE_PREFIX = "reportDetailVisibleColumns";
@@ -152,6 +153,14 @@ export default function ReportDetail() {
 
   const formatFieldLabel = (fieldName) => {
     const normalized = String(fieldName || "").toLowerCase();
+
+    if (normalized === "matched_member_number") {
+      return "Selected Member Number";
+    }
+
+    if (normalized === "matched_member_name") {
+      return "Matched Member Name";
+    }
 
     if (normalized === "caf") {
       return "CAF %";
@@ -329,7 +338,37 @@ export default function ReportDetail() {
       });
     });
 
-    return discoveredColumns;
+    const findColumn = (expectedName) =>
+      discoveredColumns.find(
+        (column) => String(column).toLowerCase() === expectedName.toLowerCase(),
+      );
+
+    const memberNumberColumn = findColumn("member_number");
+    const memberNameColumn = findColumn("member_name");
+    const matchedNumberColumn = findColumn("matched_member_number");
+    const matchedNameColumn = findColumn("matched_member_name");
+
+    const memberColumns = [
+      memberNumberColumn,
+      memberNameColumn,
+      matchedNumberColumn,
+      matchedNameColumn,
+    ].filter(Boolean);
+
+    const remainingColumns = discoveredColumns.filter(
+      (column) => !memberColumns.includes(column),
+    );
+
+    const memberAddressIndex = remainingColumns.findIndex(
+      (column) => String(column).toLowerCase() === "member_address",
+    );
+
+    if (memberAddressIndex >= 0) {
+      remainingColumns.splice(memberAddressIndex, 0, ...memberColumns);
+      return remainingColumns;
+    }
+
+    return [...memberColumns, ...remainingColumns];
   }, [rows]);
 
   useEffect(() => {
@@ -460,7 +499,8 @@ export default function ReportDetail() {
       alert("✅ Row updated successfully");
     } catch (err) {
       console.error("❌ Save failed:", err);
-      alert("❌ Failed to save changes.");
+
+      alert(`❌ ${err?.message || "Failed to save changes."}`);
     }
   };
 
@@ -1036,8 +1076,14 @@ export default function ReportDetail() {
                             <input
                               value={editing.value}
                               onChange={handleChange}
-                              className="border rounded px-2 py-1 min-w-32"
+                              className="min-w-40 rounded border px-2 py-1"
                               autoFocus
+                              placeholder={
+                                String(column).toLowerCase() ===
+                                "matched_member_number"
+                                  ? "Enter member number"
+                                  : `Enter ${formatFieldLabel(column)}`
+                              }
                               onKeyDown={(event) => {
                                 if (event.key === "Enter") {
                                   saveEdit();
@@ -1052,7 +1098,7 @@ export default function ReportDetail() {
                             <button
                               type="button"
                               onClick={saveEdit}
-                              className="bg-emerald-600 text-white px-2 rounded hover:bg-emerald-700"
+                              className="rounded bg-emerald-600 px-2 text-white hover:bg-emerald-700"
                               title="Save"
                             >
                               <Save className="h-4 w-4" />
@@ -1061,7 +1107,7 @@ export default function ReportDetail() {
                             <button
                               type="button"
                               onClick={cancelEdit}
-                              className="border px-2 rounded hover:bg-slate-100"
+                              className="rounded border px-2 hover:bg-slate-100"
                               title="Cancel"
                             >
                               ×
@@ -1069,19 +1115,28 @@ export default function ReportDetail() {
                           </div>
                         ) : readOnly ? (
                           <span
-                            className="block min-w-max text-slate-600"
+                            className="block min-h-[32px] min-w-[140px] px-2 py-1 text-slate-600"
                             title="Read-only field"
                           >
-                            {formatCellValue(column, row[column])}
+                            {formatCellValue(column, row[column]) || (
+                              <span className="text-slate-400">—</span>
+                            )}
                           </span>
                         ) : (
                           <button
                             type="button"
                             onClick={() => startEdit(row, column)}
-                            className="text-left w-full min-w-max"
+                            className="block min-h-[32px] min-w-[140px] w-full rounded px-2 py-1 text-left hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-300"
                             title="Click to edit"
                           >
-                            {formatCellValue(column, row[column])}
+                            {formatCellValue(column, row[column]) || (
+                              <span className="italic text-slate-400">
+                                {String(column).toLowerCase() ===
+                                "matched_member_number"
+                                  ? "Select member number"
+                                  : "Click to edit"}
+                              </span>
+                            )}
                           </button>
                         )}
                       </td>
