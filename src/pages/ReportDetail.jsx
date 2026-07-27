@@ -8,7 +8,7 @@
 // ✔ No hardcoded backend URLs
 // ✔ Displays multi-period report metadata
 // ✔ Displays Supplier Name and BP Code
-// ✔ Current-page record, Purchase, and CAF totals
+// ✔ Overall and current-page Purchase/CAF totals
 // ✔ Sticky/frozen table header
 // ✔ Show/hide detail columns with localStorage persistence
 // ✔ Read-only database fields cannot be edited
@@ -47,7 +47,6 @@ const READ_ONLY_FIELDS = new Set([
   "approved_at_utc",
   "created_at_utc",
   "updated_at_utc",
-  "matched_member_name",
 ]);
 
 const COLUMN_STORAGE_PREFIX = "reportDetailVisibleColumns";
@@ -153,14 +152,6 @@ export default function ReportDetail() {
 
   const formatFieldLabel = (fieldName) => {
     const normalized = String(fieldName || "").toLowerCase();
-
-    if (normalized === "matched_member_number") {
-      return "Selected Member Number";
-    }
-
-    if (normalized === "matched_member_name") {
-      return "Matched Member Name";
-    }
 
     if (normalized === "caf") {
       return "CAF %";
@@ -585,8 +576,34 @@ export default function ReportDetail() {
   };
 
   // ======================================================================
-  // CURRENT PAGE TOTALS
+  // TOTALS
   // ======================================================================
+  const overallTotals = useMemo(
+    () =>
+      rows.reduce(
+        (totals, row) => {
+          totals.purchase += getPurchaseValue(row);
+          totals.caf += getCafValue(row);
+          return totals;
+        },
+        { purchase: 0, caf: 0 },
+      ),
+    [rows],
+  );
+
+  const filteredTotals = useMemo(
+    () =>
+      processed.filteredRows.reduce(
+        (totals, row) => {
+          totals.purchase += getPurchaseValue(row);
+          totals.caf += getCafValue(row);
+          return totals;
+        },
+        { purchase: 0, caf: 0 },
+      ),
+    [processed.filteredRows],
+  );
+
   const currentPageTotals = useMemo(
     () =>
       processed.slice.reduce(
@@ -781,11 +798,26 @@ export default function ReportDetail() {
         </div>
       </div>
 
-      {/* CURRENT PAGE TOTALS */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+      {/* FINANCIAL TOTALS */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-6">
         <TotalCard
-          label="Records on Current Page"
-          value={processed.slice.length}
+          label="Overall Purchase Total"
+          value={`$${formatMoney(overallTotals.purchase)}`}
+        />
+
+        <TotalCard
+          label="Overall CAF Total"
+          value={`$${formatMoney(overallTotals.caf)}`}
+        />
+
+        <TotalCard
+          label="Filtered Purchase Total"
+          value={`$${formatMoney(filteredTotals.purchase)}`}
+        />
+
+        <TotalCard
+          label="Filtered CAF Total"
+          value={`$${formatMoney(filteredTotals.caf)}`}
         />
 
         <TotalCard
