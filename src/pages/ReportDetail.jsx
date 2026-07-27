@@ -47,6 +47,7 @@ const READ_ONLY_FIELDS = new Set([
   "approved_at_utc",
   "created_at_utc",
   "updated_at_utc",
+  "matched_member_name",
 ]);
 
 const COLUMN_STORAGE_PREFIX = "reportDetailVisibleColumns";
@@ -152,6 +153,14 @@ export default function ReportDetail() {
 
   const formatFieldLabel = (fieldName) => {
     const normalized = String(fieldName || "").toLowerCase();
+
+    if (normalized === "matched_member_number") {
+      return "Selected Member Number";
+    }
+
+    if (normalized === "matched_member_name") {
+      return "Matched Member Name";
+    }
 
     if (normalized === "caf") {
       return "CAF %";
