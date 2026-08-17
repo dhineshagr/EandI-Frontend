@@ -6,10 +6,10 @@
 // ✔ No bearer tokens
 // ✔ Uses apiFetch() with secure session cookies
 // ✔ No hardcoded API URLs
-// ✔ Multi-period display support
+// ✔ Report Period + Posting Period display support
 // ✔ Friendly report type display: Members -> Report
 // ✔ Zero Sales display and action handling
-// ✔ Period / Supplier / Contract columns
+// ✔ Report Period / Posting Period / Supplier / Contract columns
 // ✔ Linked Report # column
 // ✔ Dynamic current-page totals for Purchase $ and CAF $
 // ✔ Sticky/frozen table headers
@@ -30,7 +30,8 @@ const TABLE_COLUMNS = [
   { key: "related_report_number", label: "Linked Report #" },
   { key: "report_type", label: "Type" },
   { key: "file_name", label: "File" },
-  { key: "period", label: "Period(s)" },
+  { key: "period", label: "Report Period" },
+  { key: "posting_period", label: "Posting Period" },
   { key: "supplier_name", label: "Supplier" },
   { key: "contract_id", label: "Contract" },
   { key: "uploaded_by_display", label: "Uploaded By" },
@@ -104,6 +105,7 @@ export default function SspReportsDashboard() {
     dateType: "Uploaded_At_Utc",
     startDate: "",
     endDate: "",
+    reportPeriod: "",
     supplier: "",
     contract: "",
     member: "",
@@ -148,22 +150,65 @@ export default function SspReportsDashboard() {
     if (Array.isArray(report?.periods) && report.periods.length > 0) {
       return report.periods
         .map((period) => String(period || "").trim())
-        .filter(Boolean);
+        .filter(Boolean)
+        .sort();
     }
 
     if (report?.period) {
-      return String(report.period)
+      const value = String(report.period).trim();
+
+      if (value.includes(" to ")) {
+        return value
+          .split(" to ")
+          .map((period) => period.trim())
+          .filter(Boolean)
+          .sort();
+      }
+
+      return value
         .split(",")
         .map((period) => period.trim())
-        .filter(Boolean);
+        .filter(Boolean)
+        .sort();
     }
 
     return [];
   };
 
-  const getPeriodDisplay = (report) => {
+  const getReportPeriodEnd = (report) => {
     const periods = getReportPeriods(report);
-    return periods.length > 0 ? periods.join(", ") : "-";
+    return periods.length > 0 ? periods[periods.length - 1] : "";
+  };
+
+  const getReportPeriodDisplay = (report) => {
+    const periods = getReportPeriods(report);
+
+    if (periods.length === 0) {
+      return "-";
+    }
+
+    if (periods.length === 1) {
+      return periods[0];
+    }
+
+    return `Start Period: ${periods[0]}  End Period: ${
+      periods[periods.length - 1]
+    }`;
+  };
+
+  const getPostingPeriodDisplay = (report) => {
+    const start = String(report?.posting_period_start || "").trim();
+    const end = String(report?.posting_period || "").trim();
+
+    if (!start && !end) {
+      return "-";
+    }
+
+    if (start && end && start !== end) {
+      return `Start Period: ${start}  End Period: ${end}`;
+    }
+
+    return end || start;
   };
 
   const formatMoney = (value) =>
@@ -248,6 +293,7 @@ export default function SspReportsDashboard() {
         dateType: filters.dateType,
         startDate: filters.startDate,
         endDate: filters.endDate,
+        reportPeriod: filters.reportPeriod,
         supplier: filters.supplier,
         contract: filters.contract,
         member: filters.member,
@@ -279,6 +325,7 @@ export default function SspReportsDashboard() {
     filters.dateType,
     filters.startDate,
     filters.endDate,
+    filters.reportPeriod,
     filters.supplier,
     filters.contract,
     filters.member,
@@ -313,6 +360,7 @@ export default function SspReportsDashboard() {
       dateType: "Uploaded_At_Utc",
       startDate: "",
       endDate: "",
+      reportPeriod: "",
       supplier: "",
       contract: "",
       member: "",
@@ -353,7 +401,8 @@ export default function SspReportsDashboard() {
       "Linked Report Number",
       "Type",
       "File",
-      "Periods",
+      "Report Period",
+      "Posting Period",
       "Supplier",
       "Contract",
       "Uploaded By",
@@ -371,7 +420,8 @@ export default function SspReportsDashboard() {
       report.related_report_number || "",
       getReportTypeDisplay(report),
       report.file_name || "",
-      getPeriodDisplay(report),
+      getReportPeriodDisplay(report),
+      getPostingPeriodDisplay(report),
       report.supplier_name
         ? `${report.supplier_name} (${report.bp_code || ""})`
         : report.bp_code || "",
@@ -468,7 +518,8 @@ export default function SspReportsDashboard() {
         <h1 className="text-2xl font-bold">SSP Reports Dashboard</h1>
 
         <p className="mt-1 text-slate-600">
-          Search, review, export, and download processed SSP reports.
+          Search, review, export, and download processed SSP reports by Report
+          Period and Posting Period.
         </p>
       </div>
 
@@ -477,7 +528,7 @@ export default function SspReportsDashboard() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <input
             type="text"
-            placeholder="Search by Report #, Linked Report #, File, Period, Supplier, Contract, or Uploaded By"
+            placeholder="Search by Report #, Linked Report #, File, Report Period, Posting Period, Supplier, Contract, or Uploaded By"
             value={search}
             onChange={(event) => {
               setSearch(event.target.value);
@@ -522,7 +573,16 @@ export default function SspReportsDashboard() {
           </button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <input
+            type="month"
+            name="reportPeriod"
+            value={filters.reportPeriod}
+            onChange={handleFilterChange}
+            className="border p-2 rounded"
+            title="Multi-period reports are filtered by their ending Report Period"
+          />
+
           <input
             type="text"
             name="supplier"
@@ -751,10 +811,21 @@ export default function SspReportsDashboard() {
                     {visibleColumns.period && (
                       <td className="border px-3 py-2">
                         <div
-                          className="max-w-xs whitespace-normal"
-                          title={getPeriodDisplay(report)}
+                          className="max-w-[260px] whitespace-normal"
+                          title={getReportPeriodDisplay(report)}
                         >
-                          {getPeriodDisplay(report)}
+                          {getReportPeriodDisplay(report)}
+                        </div>
+                      </td>
+                    )}
+
+                    {visibleColumns.posting_period && (
+                      <td className="border px-3 py-2">
+                        <div
+                          className="max-w-[260px] whitespace-normal"
+                          title={getPostingPeriodDisplay(report)}
+                        >
+                          {getPostingPeriodDisplay(report)}
                         </div>
                       </td>
                     )}
