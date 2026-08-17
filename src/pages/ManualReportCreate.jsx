@@ -290,6 +290,36 @@ const NUMBER_FIELDS = new Set([
   "qty",
 ]);
 
+/*
+ * DQ validation groups.
+ *
+ * Keep the existing manual-entry columns unchanged, but apply the
+ * client's conditional address validation rules when warnings are built.
+ */
+const CORE_REQUIRED_FIELD_KEYS = new Set([
+  "customer_id",
+  "member_number",
+  "member_name",
+  "purchase_dollars",
+  "caf",
+  "caf_dollars",
+]);
+
+const MEMBER_ADDRESS_FIELD_KEYS = [
+  "member_address",
+  "member_city",
+  "member_state",
+  "member_zip",
+];
+
+const SHIP_TO_ADDRESS_FIELD_KEYS = [
+  "ship_to",
+  "ship_to_address",
+  "ship_to_city",
+  "ship_to_state",
+  "ship_to_zip",
+];
+
 // ======================================================================
 // HELPERS
 // ======================================================================
@@ -941,16 +971,132 @@ export default function ManualReportCreate() {
 
     const warningList = [];
 
+    const hasValue = (value) =>
+      value !== "" &&
+      value !== null &&
+      value !== undefined &&
+      String(value).trim() !== "";
+
     rows.forEach((row, index) => {
       const rowNumber = index + 1;
 
+      const purchaseDollars =
+        Number(
+          String(row.purchase_dollars ?? "")
+            .replace(/[$,]/g, "")
+            .trim(),
+        ) || 0;
+
+      const cafDollars =
+        Number(
+          String(row.caf_dollars ?? "")
+            .replace(/[$,]/g, "")
+            .trim(),
+        ) || 0;
+
+      // ================================================================
+      // DQ CHANGE #1
+      // IGNORE ZERO-DOLLAR SALES LINES
+      // ----------------------------------------------------------------
+      // Client requirement:
+      // If Purchase Dollars = 0 AND CAF Dollars = 0,
+      // do not generate DQ warnings for this row.
+      // ================================================================
+
+      const isZeroDollarLine = purchaseDollars === 0 && cafDollars === 0;
+
+      if (isZeroDollarLine) {
+        return;
+      }
+
+      // ================================================================
+      // STANDARD REQUIRED FIELDS
+      // ----------------------------------------------------------------
+      // Validate only the always-required fields here.
+      // Address fields are validated conditionally below.
+      // ================================================================
+
       REQUIRED_FIELDS.forEach((field) => {
+        if (!CORE_REQUIRED_FIELD_KEYS.has(field.key)) {
+          return;
+        }
+
         const value = row[field.key];
 
-        if (value === "" || value === null || value === undefined) {
+        if (!hasValue(value)) {
           warningList.push(`Row ${rowNumber}: ${field.label} is missing.`);
         }
       });
+
+      // ================================================================
+      // DQ CHANGE #2
+      // MEMBER ADDRESS / SHIP-TO ADDRESS CONDITIONAL VALIDATION
+      // ================================================================
+
+      const hasAnyMemberAddress = MEMBER_ADDRESS_FIELD_KEYS.some((fieldKey) =>
+        hasValue(row[fieldKey]),
+      );
+
+      const hasAnyShipToAddress = SHIP_TO_ADDRESS_FIELD_KEYS.some((fieldKey) =>
+        hasValue(row[fieldKey]),
+      );
+
+      /*
+       * If neither address group is populated, create one DQ warning.
+       */
+      if (!hasAnyMemberAddress && !hasAnyShipToAddress) {
+        warningList.push(
+          `Row ${rowNumber}: Member Address or Ship-To Address is required.`,
+        );
+      }
+
+      /*
+       * If the Member Address group is being used, validate only
+       * Member Address / City / State / ZIP.
+       *
+       * Do not generate missing Ship-To warnings.
+       */
+      if (hasAnyMemberAddress) {
+        MEMBER_ADDRESS_FIELD_KEYS.forEach((fieldKey) => {
+          const fieldDefinition = REQUIRED_FIELDS.find(
+            (field) => field.key === fieldKey,
+          );
+
+          if (!hasValue(row[fieldKey])) {
+            warningList.push(
+              `Row ${rowNumber}: ${
+                fieldDefinition?.label || fieldKey
+              } is missing.`,
+            );
+          }
+        });
+      }
+
+      /*
+       * If the Ship-To Address group is being used, validate only
+       * Ship To / Address / City / State / ZIP.
+       *
+       * Do not generate missing Member Address warnings.
+       */
+      if (hasAnyShipToAddress) {
+        SHIP_TO_ADDRESS_FIELD_KEYS.forEach((fieldKey) => {
+          const fieldDefinition = REQUIRED_FIELDS.find(
+            (field) => field.key === fieldKey,
+          );
+
+          if (!hasValue(row[fieldKey])) {
+            warningList.push(
+              `Row ${rowNumber}: ${
+                fieldDefinition?.label || fieldKey
+              } is missing.`,
+            );
+          }
+        });
+      }
+
+      // ================================================================
+      // EXISTING NUMBER VALIDATION
+      // ================================================================
 
       NUMBER_FIELDS.forEach((fieldName) => {
         const value = row[fieldName];
