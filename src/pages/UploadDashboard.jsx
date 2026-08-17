@@ -70,18 +70,24 @@ const REQUIRED_FIELDS = [
   "customer_id",
   "member_number",
   "member_name",
+  "purchase_dollars",
+  "caf",
+  "caf_dollars",
+];
+
+const MEMBER_ADDRESS_FIELDS = [
   "member_address",
   "member_city",
   "member_state",
   "member_zip",
+];
+
+const SHIP_TO_ADDRESS_FIELDS = [
   "ship_to",
   "ship_to_address",
   "ship_to_city",
   "ship_to_state",
   "ship_to_zip",
-  "purchase_dollars",
-  "caf",
-  "caf_dollars",
 ];
 
 /* ======================================================================
@@ -237,11 +243,46 @@ function isEmptyRow(row) {
 function validateBusinessRules(file, data, headers) {
   const errors = [];
 
+  const hasValue = (value) =>
+    value !== null && value !== undefined && String(value).trim() !== "";
+
+  // ====================================================================
+  // REQUIRED FILE COLUMNS
+  // ====================================================================
+
   REQUIRED_FIELDS.forEach((field) => {
     if (!headers.includes(field)) {
       errors.push(`Row 1: Missing required field: ${field}`);
     }
   });
+
+  /*
+   * Address columns are conditional.
+   *
+   * Client DQ rule:
+   * - If Member Address fields are supplied, Ship-To Address fields
+   *   are not required.
+   * - If Ship-To Address fields are supplied, Member Address fields
+   *   are not required.
+   * - At least one address group should exist in the uploaded file.
+   */
+  const hasAnyMemberAddressHeader = MEMBER_ADDRESS_FIELDS.some((field) =>
+    headers.includes(field),
+  );
+
+  const hasAnyShipToAddressHeader = SHIP_TO_ADDRESS_FIELDS.some((field) =>
+    headers.includes(field),
+  );
+
+  if (!hasAnyMemberAddressHeader && !hasAnyShipToAddressHeader) {
+    errors.push(
+      "Row 1: Missing address fields. Member Address or Ship-To Address fields are required.",
+    );
+  }
+
+  // ====================================================================
+  // ROW VALIDATION
+  // ====================================================================
 
   data.forEach((row, index) => {
     if (isEmptyRow(row)) {
@@ -250,11 +291,45 @@ function validateBusinessRules(file, data, headers) {
 
     const rowNumber = index + 2;
 
-    const purchase = parseFloat(row.purchase_dollars) || 0;
+    const purchase =
+      parseFloat(
+        String(row.purchase_dollars ?? "")
+          .replace(/[$,]/g, "")
+          .trim(),
+      ) || 0;
 
-    const caf = parseFloat(row.caf) || 0;
+    const caf =
+      parseFloat(
+        String(row.caf ?? "")
+          .replace(/[$,%]/g, "")
+          .trim(),
+      ) || 0;
 
-    const cafDollars = parseFloat(row.caf_dollars) || 0;
+    const cafDollars =
+      parseFloat(
+        String(row.caf_dollars ?? "")
+          .replace(/[$,]/g, "")
+          .trim(),
+      ) || 0;
+
+    // ==================================================================
+    // DQ CHANGE #1
+    // IGNORE ZERO-DOLLAR SALES LINES
+    // ------------------------------------------------------------------
+    // Client requirement:
+    // If Purchase Dollars = 0 AND CAF Dollars = 0,
+    // do not create DQ issues for this row.
+    // ==================================================================
+
+    const isZeroDollarLine = purchase === 0 && cafDollars === 0;
+
+    if (isZeroDollarLine) {
+      return;
+    }
+
+    // ==================================================================
+    // EXISTING CAF CALCULATION VALIDATION
+    // ==================================================================
 
     /*
      * Existing uploaded templates store CAF as a decimal rate,
@@ -271,11 +346,67 @@ function validateBusinessRules(file, data, headers) {
       );
     }
 
+    // ==================================================================
+    // STANDARD REQUIRED FIELDS
+    // ==================================================================
+
     REQUIRED_FIELDS.forEach((field) => {
-      if (!row[field] || row[field].toString().trim() === "") {
+      if (!hasValue(row[field])) {
         errors.push(`Row ${rowNumber}: Missing value for ${field}`);
       }
     });
+
+    // ==================================================================
+    // DQ CHANGE #2
+    // MEMBER ADDRESS / SHIP-TO ADDRESS CONDITIONAL VALIDATION
+    // ==================================================================
+
+    const memberAddressValues = MEMBER_ADDRESS_FIELDS.map(
+      (field) => row[field],
+    );
+
+    const shipToAddressValues = SHIP_TO_ADDRESS_FIELDS.map(
+      (field) => row[field],
+    );
+
+    const hasAnyMemberAddress = memberAddressValues.some(hasValue);
+
+    const hasAnyShipToAddress = shipToAddressValues.some(hasValue);
+
+    /*
+     * Neither address group has any value.
+     */
+    if (!hasAnyMemberAddress && !hasAnyShipToAddress) {
+      errors.push(
+        `Row ${rowNumber}: Member Address or Ship-To Address is required`,
+      );
+
+      return;
+    }
+
+    /*
+     * If Member Address is used, validate only the Member Address group.
+     * Do not create missing Ship-To DQ errors.
+     */
+    if (hasAnyMemberAddress) {
+      MEMBER_ADDRESS_FIELDS.forEach((field) => {
+        if (!hasValue(row[field])) {
+          errors.push(`Row ${rowNumber}: Missing value for ${field}`);
+        }
+      });
+    }
+
+    /*
+     * If Ship-To Address is used, validate only the Ship-To Address group.
+     * Do not create missing Member Address DQ errors.
+     */
+    if (hasAnyShipToAddress) {
+      SHIP_TO_ADDRESS_FIELDS.forEach((field) => {
+        if (!hasValue(row[field])) {
+          errors.push(`Row ${rowNumber}: Missing value for ${field}`);
+        }
+      });
+    }
   });
 
   return errors;
