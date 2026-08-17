@@ -5,7 +5,7 @@
 // ✔ Session-based authentication
 // ✔ Search, sorting, and client-side pagination
 // ✔ Supplier name and supplier code display
-// ✔ Multiple-period display
+// ✔ Report Period + Posting Period display
 // ✔ Linked Report #
 // ✔ Purchase and CAF totals for each report
 // ✔ Dynamic totals for the current displayed page
@@ -42,7 +42,12 @@ const TABLE_COLUMNS = [
   { key: "related_report_number", label: "Linked Report #" },
   { key: "report_type", label: "Type" },
   { key: "filename", label: "File" },
-  { key: "period", label: "Period" },
+  { key: "period", label: "Report Period" },
+  {
+    key: "posting_period",
+    label: "Posting Period",
+    sortKey: "posting_period",
+  },
   { key: "supplier", label: "Supplier", sortKey: "supplier_name" },
   { key: "contract_id", label: "Contract" },
   {
@@ -104,6 +109,7 @@ export default function ReportsDashboard() {
   const [loading, setLoading] = useState(true);
   const [reports, setReports] = useState([]);
   const [search, setSearch] = useState("");
+  const [reportPeriodFilter, setReportPeriodFilter] = useState("");
 
   // Sorting and pagination
   const [sortField, setSortField] = useState("uploaded_at_utc");
@@ -135,23 +141,74 @@ export default function ReportsDashboard() {
     if (Array.isArray(report?.periods) && report.periods.length > 0) {
       return report.periods
         .map((period) => String(period || "").trim())
-        .filter(Boolean);
+        .filter(Boolean)
+        .sort();
     }
 
     if (report?.period) {
-      return String(report.period)
+      const periodValue = String(report.period).trim();
+
+      if (periodValue.includes(" to ")) {
+        return periodValue
+          .split(" to ")
+          .map((period) => period.trim())
+          .filter(Boolean)
+          .sort();
+      }
+
+      return periodValue
         .split(",")
         .map((period) => period.trim())
-        .filter(Boolean);
+        .filter(Boolean)
+        .sort();
     }
 
     return [];
   };
 
-  const getPeriodDisplay = (report) => {
+  const getReportPeriodStart = (report) => {
     const periods = getReportPeriods(report);
-    return periods.length > 0 ? periods.join(", ") : "-";
+    return periods.length > 0 ? periods[0] : "";
   };
+
+  const getReportPeriodEnd = (report) => {
+    const periods = getReportPeriods(report);
+    return periods.length > 0 ? periods[periods.length - 1] : "";
+  };
+
+  const getReportPeriodDisplay = (report) => {
+    const periods = getReportPeriods(report);
+
+    if (periods.length === 0) {
+      return "-";
+    }
+
+    if (periods.length === 1) {
+      return periods[0];
+    }
+
+    return `Start Period: ${periods[0]}  End Period: ${
+      periods[periods.length - 1]
+    }`;
+  };
+
+  const getPostingPeriodDisplay = (report) => {
+    const start = String(report?.posting_period_start || "").trim();
+    const end = String(report?.posting_period || "").trim();
+
+    if (!start && !end) {
+      return "-";
+    }
+
+    if (start && end && start !== end) {
+      return `Start Period: ${start}  End Period: ${end}`;
+    }
+
+    return end || start;
+  };
+
+  const getPostingPeriodSortValue = (report) =>
+    String(report?.posting_period || report?.posting_period_start || "").trim();
 
   const isZeroSalesReport = (report) =>
     String(report?.filename || report?.file_name || "")
@@ -215,11 +272,31 @@ export default function ReportsDashboard() {
     }
   }, [visibleColumns]);
 
+  const reportPeriodOptions = useMemo(() => {
+    const values = new Set();
+
+    reports.forEach((report) => {
+      const endPeriod = getReportPeriodEnd(report);
+
+      if (endPeriod) {
+        values.add(endPeriod);
+      }
+    });
+
+    return Array.from(values).sort((left, right) => right.localeCompare(left));
+  }, [reports]);
+
   // ======================================================================
   // SEARCH, SORT, AND PAGINATION
   // ======================================================================
   const processed = useMemo(() => {
     let list = [...reports];
+
+    if (reportPeriodFilter) {
+      list = list.filter(
+        (report) => getReportPeriodEnd(report) === reportPeriodFilter,
+      );
+    }
 
     const queryValue = search.trim().toLowerCase();
 
@@ -234,6 +311,10 @@ export default function ReportsDashboard() {
           report.report_type,
           report.period,
           ...(Array.isArray(report.periods) ? report.periods : []),
+          getReportPeriodDisplay(report),
+          report.posting_period_start,
+          report.posting_period,
+          getPostingPeriodDisplay(report),
           report.supplier_name,
           report.bp_code,
           report.contract_id,
@@ -264,6 +345,12 @@ export default function ReportsDashboard() {
       } else if (sortField === "uploaded_by_display") {
         leftValue = getUploadedByDisplay(leftReport);
         rightValue = getUploadedByDisplay(rightReport);
+      } else if (sortField === "period") {
+        leftValue = getReportPeriodEnd(leftReport);
+        rightValue = getReportPeriodEnd(rightReport);
+      } else if (sortField === "posting_period") {
+        leftValue = getPostingPeriodSortValue(leftReport);
+        rightValue = getPostingPeriodSortValue(rightReport);
       } else {
         leftValue = leftReport[sortField] ?? "";
         rightValue = rightReport[sortField] ?? "";
@@ -308,7 +395,7 @@ export default function ReportsDashboard() {
       total,
       slice,
     };
-  }, [reports, search, sortField, sortDir, page, pageSize]);
+  }, [reports, search, reportPeriodFilter, sortField, sortDir, page, pageSize]);
 
   const totalPages = Math.max(1, Math.ceil(processed.total / pageSize));
 
@@ -474,25 +561,46 @@ export default function ReportsDashboard() {
         <h1 className="text-2xl font-bold">Reports Dashboard</h1>
 
         <p className="mt-1 text-slate-600">
-          List of uploaded reports with statuses, counts, totals, and actions.
+          List of uploaded reports with Report Period, Posting Period, statuses,
+          counts, totals, and actions.
         </p>
       </div>
 
       {/* SEARCH AND COLUMN CONTROLS */}
       <div className="bg-white shadow p-4 rounded">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <input
-            type="text"
-            placeholder="Search by file, user, report #, linked report #, period, supplier, contract, Purchase $, or CAF $"
-            value={search}
-            onChange={(event) => {
-              setSearch(event.target.value);
-              setPage(1);
-            }}
-            className="border rounded px-3 py-2 w-full lg:w-2/3"
-          />
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex w-full flex-col gap-3 lg:flex-row xl:w-auto xl:flex-1">
+            <input
+              type="text"
+              placeholder="Search by file, user, report #, linked report #, Report Period, Posting Period, supplier, contract, Purchase $, or CAF $"
+              value={search}
+              onChange={(event) => {
+                setSearch(event.target.value);
+                setPage(1);
+              }}
+              className="w-full rounded border px-3 py-2 lg:flex-1"
+            />
 
-          <div className="relative">
+            <select
+              value={reportPeriodFilter}
+              onChange={(event) => {
+                setReportPeriodFilter(event.target.value);
+                setPage(1);
+              }}
+              className="rounded border border-slate-300 bg-white px-3 py-2 lg:w-56"
+              title="Multi-period reports are filtered by their ending Report Period"
+            >
+              <option value="">All Report Periods</option>
+
+              {reportPeriodOptions.map((period) => (
+                <option key={period} value={period}>
+                  {period}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="relative shrink-0">
             <button
               type="button"
               onClick={() => setShowColumnMenu((previous) => !previous)}
@@ -715,10 +823,21 @@ export default function ReportsDashboard() {
                   {visibleColumns.period && (
                     <td className="border px-3 py-2">
                       <div
-                        className="max-w-xs whitespace-normal"
-                        title={getPeriodDisplay(report)}
+                        className="max-w-[260px] whitespace-normal"
+                        title={getReportPeriodDisplay(report)}
                       >
-                        {getPeriodDisplay(report)}
+                        {getReportPeriodDisplay(report)}
+                      </div>
+                    </td>
+                  )}
+
+                  {visibleColumns.posting_period && (
+                    <td className="border px-3 py-2">
+                      <div
+                        className="max-w-[260px] whitespace-normal"
+                        title={getPostingPeriodDisplay(report)}
+                      >
+                        {getPostingPeriodDisplay(report)}
                       </div>
                     </td>
                   )}
