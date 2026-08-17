@@ -178,8 +178,24 @@ export default function RecentUploadsCard({ uploads }) {
 
           period: upload.period || "",
 
-          periodDisplay:
-            periods.length > 0 ? periods.join(", ") : upload.period || "—",
+          reportPeriodDisplay: upload.period || "—",
+
+          postingPeriodStart:
+            upload.posting_period_start || upload.postingPeriodStart || "",
+
+          postingPeriod: upload.posting_period || upload.postingPeriod || "",
+
+          postingPeriodDisplay: (() => {
+            const start =
+              upload.posting_period_start || upload.postingPeriodStart || "";
+            const end = upload.posting_period || upload.postingPeriod || "";
+
+            if (start && end && start !== end) {
+              return `Start Period: ${start}  End Period: ${end}`;
+            }
+
+            return end || start || "—";
+          })(),
 
           supplierCode: upload.bp_code || upload.bpCode || "",
 
@@ -397,7 +413,7 @@ export default function RecentUploadsCard({ uploads }) {
       {/* Table */}
 
       <div className="flex-1 overflow-auto p-4">
-        <table className="min-w-[1050px] w-full border-collapse text-sm">
+        <table className="min-w-[1250px] w-full border-collapse text-sm">
           <thead>
             <tr className="bg-slate-100 text-left">
               <th
@@ -425,10 +441,18 @@ export default function RecentUploadsCard({ uploads }) {
 
               <th
                 className="cursor-pointer border px-3 py-2 hover:bg-slate-200"
-                onClick={() => changeSort("periodDisplay")}
+                onClick={() => changeSort("reportPeriodDisplay")}
               >
-                Period(s)
-                {sortIndicator("periodDisplay")}
+                Report Period(s)
+                {sortIndicator("reportPeriodDisplay")}
+              </th>
+
+              <th
+                className="cursor-pointer border px-3 py-2 hover:bg-slate-200"
+                onClick={() => changeSort("postingPeriodDisplay")}
+              >
+                Posting Period(s)
+                {sortIndicator("postingPeriodDisplay")}
               </th>
 
               <th
@@ -476,7 +500,7 @@ export default function RecentUploadsCard({ uploads }) {
           <tbody>
             {paginatedUploads.length === 0 ? (
               <tr>
-                <td colSpan="9" className="py-6 text-center text-slate-500">
+                <td colSpan="10" className="py-6 text-center text-slate-500">
                   No uploads yet
                 </td>
               </tr>
@@ -516,20 +540,21 @@ export default function RecentUploadsCard({ uploads }) {
                     </td>
 
                     <td className="border px-3 py-2">
-                      {upload.periods.length > 0 ? (
-                        <div className="flex max-w-[220px] flex-wrap gap-1">
-                          {upload.periods.map((period) => (
-                            <span
-                              key={period}
-                              className="whitespace-nowrap rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-xs text-sky-700"
-                            >
-                              {period}
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        getPeriodDisplay(upload)
-                      )}
+                      <div
+                        className="max-w-[240px] text-slate-700"
+                        title={upload.reportPeriodDisplay}
+                      >
+                        {upload.reportPeriodDisplay}
+                      </div>
+                    </td>
+
+                    <td className="border px-3 py-2">
+                      <div
+                        className="max-w-[280px] text-slate-700"
+                        title={upload.postingPeriodDisplay}
+                      >
+                        {upload.postingPeriodDisplay}
+                      </div>
                     </td>
 
                     <td className="border px-3 py-2">
