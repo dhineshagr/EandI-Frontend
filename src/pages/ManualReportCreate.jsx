@@ -17,11 +17,12 @@
 //   - Linked original report is required.
 //
 // Return
-//   - Linked approved Accrual report is required.
-//   - User does not enter detail rows.
+//   - Linked approved Report (Sales) or Accrual is required.
+//   - User chooses Manual Entry or Automated Reversal.
 //   - Periods, supplier, and contract are inherited by the backend.
-//   - Backend copies approved rows from Cur_Invoice_Detail.
-//   - Backend reverses Purchase_Dollars_Calc and CAF_Dollars.
+//   - Manual Entry: user enters Return detail rows manually.
+//   - Automated Reversal: backend copies approved rows from Cur_Invoice_Detail.
+//   - Automated Reversal: backend reverses Purchase_Dollars_Calc and CAF_Dollars.
 //
 // Period model:
 //   - Report Period(s) are selected independently and are not lock-validated.
@@ -29,7 +30,8 @@
 //   - Closed Posting Period(s) cannot be added for Report or Adjustment.
 //   - Previously selected Posting Period(s) are revalidated before submission.
 //   - For a Posting Period range, the ending month is the NetSuite posting period.
-//   - Return behavior is unchanged and continues to inherit periods in the backend.
+//   - Return continues to inherit periods from the linked approved Report/Accrual.
+//
 //
 // Common functionality:
 //   - Uses session-based apiFetch().
@@ -451,6 +453,12 @@ export default function ManualReportCreate() {
     bp_code: "",
     contract_id: "",
     related_report_number: "",
+
+    // Return only:
+    // "automatic" = copy approved linked rows and reverse amounts.
+    // "manual"    = user enters Return rows manually.
+    return_processing_mode: "automatic",
+
     note: "",
   });
 
@@ -502,7 +510,12 @@ export default function ManualReportCreate() {
 
   const isReturn = form.report_type === "Return";
 
-  const requiresManualRows = isReport || isAdjustment;
+  const isManualReturn = isReturn && form.return_processing_mode === "manual";
+
+  const isAutomaticReturn =
+    isReturn && form.return_processing_mode === "automatic";
+
+  const requiresManualRows = isReport || isAdjustment || isManualReturn;
 
   const requiresLinkedReport = isAdjustment || isReturn;
 
@@ -519,11 +532,11 @@ export default function ManualReportCreate() {
   }, [form.report_type]);
 
   const linkedReportLabel = isReturn
-    ? "Linked Accrual Report #"
+    ? "Linked Report #"
     : "Linked Original Report #";
 
   const linkedReportPlaceholder = isReturn
-    ? "Enter approved Accrual report #"
+    ? "Enter approved Report or Accrual #"
     : "Enter original report #";
 
   const periodStatusMap = useMemo(() => {
@@ -639,14 +652,15 @@ export default function ManualReportCreate() {
         }
 
         /*
-         * Return inherits these values from
-         * the linked Accrual.
+         * Return inherits Supplier, Contract, Report Period(s), and
+         * Posting Period(s) from the linked approved Report or Accrual.
          */
         if (value === "Return") {
           next.report_periods = [];
           next.posting_periods = [];
           next.bp_code = "";
           next.contract_id = "";
+          next.return_processing_mode = "automatic";
         }
       }
 
@@ -656,6 +670,12 @@ export default function ManualReportCreate() {
     if (name === "report_type" && value === "Return") {
       setReportPeriodInput("");
       setPostingPeriodInput("");
+
+      /*
+       * Do not carry detail rows from a previous Report/Adjustment into
+       * a Return. Manual Return starts with a clean row if selected.
+       */
+      setRows([emptyRow()]);
     }
 
     if (
@@ -663,6 +683,24 @@ export default function ManualReportCreate() {
       (value === "Report" || value === "Adjustment") &&
       rows.length === 0
     ) {
+      setRows([emptyRow()]);
+    }
+  };
+
+  const handleReturnProcessingModeChange = (mode) => {
+    if (!["manual", "automatic"].includes(mode)) {
+      return;
+    }
+
+    setError("");
+    setWarnings([]);
+
+    setForm((previous) => ({
+      ...previous,
+      return_processing_mode: mode,
+    }));
+
+    if (mode === "manual" && rows.length === 0) {
       setRows([emptyRow()]);
     }
   };
@@ -965,7 +1003,11 @@ export default function ManualReportCreate() {
   // ====================================================================
 
   const validateForWarnings = () => {
-    if (isReturn) {
+    /*
+     * Automated Return has no user-entered rows.
+     * Manual Return uses the same DQ warning rules as manual Report/Adjustment.
+     */
+    if (isAutomaticReturn) {
       return [];
     }
 
@@ -1130,7 +1172,7 @@ export default function ManualReportCreate() {
 
     /*
      * Report and Adjustment require both period concepts.
-     * Return behavior is unchanged and inherits periods in the backend.
+     * Return inherits both period concepts from the linked Report/Accrual.
      */
     if (
       !isReturn &&
@@ -1157,7 +1199,7 @@ export default function ManualReportCreate() {
     }
 
     /*
-     * Report and Adjustment require rows.
+     * Report, Adjustment, and Manual Return require rows.
      */
     if (requiresManualRows && (!Array.isArray(rows) || rows.length === 0)) {
       return "At least one manual detail row is required.";
@@ -1172,7 +1214,7 @@ export default function ManualReportCreate() {
       !String(form.related_report_number || "").trim()
     ) {
       return isReturn
-        ? "Linked Accrual Report # is required."
+        ? "Linked Report # is required."
         : "Linked Original Report # is required.";
     }
 
@@ -1181,7 +1223,7 @@ export default function ManualReportCreate() {
       !isPositiveInteger(form.related_report_number)
     ) {
       return isReturn
-        ? "Linked Accrual Report # must be a positive integer."
+        ? "Linked Report # must be a positive integer."
         : "Linked Original Report # must be a positive integer.";
     }
 
@@ -1292,13 +1334,23 @@ export default function ManualReportCreate() {
 
       related_report_number: linkedReportNumber,
 
+      /*
+       * Return processing mode is ignored by the backend for non-Return
+       * report types.
+       */
+      return_processing_mode: isReturn ? form.return_processing_mode : null,
+
       note: form.note.trim() || "",
 
-      validation_warnings: isReturn ? [] : warningList,
+      validation_warnings: isAutomaticReturn ? [] : warningList,
 
-      validation_error_details: isReturn ? "" : warningList.join("\n"),
+      validation_error_details: isAutomaticReturn ? "" : warningList.join("\n"),
 
-      rows: isReturn ? [] : buildManualRows(),
+      /*
+       * Automated Return sends no manual rows.
+       * Manual Return sends the rows entered by the user.
+       */
+      rows: isAutomaticReturn ? [] : buildManualRows(),
     };
 
     try {
@@ -1309,7 +1361,7 @@ export default function ManualReportCreate() {
         body: JSON.stringify(payload),
       });
 
-      if (!isReturn && warningList.length > 0) {
+      if (!isAutomaticReturn && warningList.length > 0) {
         try {
           await apiFetch(apiUrl("/notify-accounting"), {
             method: "POST",
@@ -1439,7 +1491,7 @@ export default function ManualReportCreate() {
 
                 <p className="mt-1 text-xs text-slate-500">
                   {isReturn
-                    ? "The selected report must be an approved Accrual report."
+                    ? "The selected report must be an approved Sales Report or Accrual."
                     : "Enter the original report associated with this adjustment."}
                 </p>
               </div>
@@ -1461,23 +1513,96 @@ export default function ManualReportCreate() {
               />
             </div>
 
-            {/* RETURN INFORMATION */}
+            {/* RETURN PROCESSING MODE */}
 
             {isReturn && (
               <div className="md:col-span-3">
-                <div className="flex items-start gap-3 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
-                  <Info className="mt-0.5 h-5 w-5 shrink-0" />
+                <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+                  <div className="flex items-start gap-3">
+                    <Info className="mt-0.5 h-5 w-5 shrink-0 text-blue-700" />
 
-                  <div>
-                    <p className="font-semibold">Return information</p>
+                    <div className="w-full">
+                      <p className="font-semibold text-blue-900">
+                        Return Processing
+                      </p>
 
-                    <p className="mt-1">
-                      Supplier, Contract, and period information will be
-                      inherited from the linked approved Accrual report.
-                      Approved processed rows will be copied automatically.
-                      Purchase Dollars and CAF Dollars will be reversed by the
-                      backend.
-                    </p>
+                      <p className="mt-1 text-sm text-blue-800">
+                        The linked report can be an approved Sales Report or
+                        Accrual. Supplier, Contract, Report Period(s), and
+                        Posting Period(s) will be inherited from the linked
+                        report.
+                      </p>
+
+                      <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+                        <label
+                          className={`cursor-pointer rounded-lg border p-4 transition ${
+                            isAutomaticReturn
+                              ? "border-indigo-500 bg-white ring-2 ring-indigo-100"
+                              : "border-slate-200 bg-white hover:border-slate-300"
+                          }`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <input
+                              type="radio"
+                              name="return_processing_mode"
+                              value="automatic"
+                              checked={isAutomaticReturn}
+                              onChange={() =>
+                                handleReturnProcessingModeChange("automatic")
+                              }
+                              disabled={saving}
+                              className="mt-1"
+                            />
+
+                            <div>
+                              <div className="font-semibold text-slate-900">
+                                Automated Reversal
+                              </div>
+
+                              <p className="mt-1 text-xs leading-5 text-slate-600">
+                                Copy approved processed rows from the linked
+                                report and reverse Purchase Dollars and CAF
+                                Dollars automatically.
+                              </p>
+                            </div>
+                          </div>
+                        </label>
+
+                        <label
+                          className={`cursor-pointer rounded-lg border p-4 transition ${
+                            isManualReturn
+                              ? "border-indigo-500 bg-white ring-2 ring-indigo-100"
+                              : "border-slate-200 bg-white hover:border-slate-300"
+                          }`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <input
+                              type="radio"
+                              name="return_processing_mode"
+                              value="manual"
+                              checked={isManualReturn}
+                              onChange={() =>
+                                handleReturnProcessingModeChange("manual")
+                              }
+                              disabled={saving}
+                              className="mt-1"
+                            />
+
+                            <div>
+                              <div className="font-semibold text-slate-900">
+                                Manual Entry
+                              </div>
+
+                              <p className="mt-1 text-xs leading-5 text-slate-600">
+                                Enter the Return detail rows manually. The
+                                backend will not automatically copy or reverse
+                                the linked report rows.
+                              </p>
+                            </div>
+                          </div>
+                        </label>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1936,7 +2061,9 @@ export default function ManualReportCreate() {
                 <h2 className="text-lg font-semibold">Manual Rows</h2>
 
                 <p className="mt-1 text-sm text-slate-500">
-                  Missing fields generate warnings but do not block submission.
+                  {isManualReturn
+                    ? "Enter the Return detail rows manually. Missing fields generate warnings but do not block submission."
+                    : "Missing fields generate warnings but do not block submission."}
                 </p>
               </div>
 
@@ -2036,26 +2163,58 @@ export default function ManualReportCreate() {
 
         {isReturn && (
           <div className="rounded-lg bg-white p-5 shadow">
-            <h2 className="text-lg font-semibold">Return Processing</h2>
+            <h2 className="text-lg font-semibold">Return Processing Summary</h2>
 
             <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-              <p>
-                No manual rows are required. When submitted, the backend will:
+              <p className="font-semibold">
+                {isManualReturn ? "Manual Entry" : "Automated Reversal"}
               </p>
 
-              <ul className="mt-2 list-disc space-y-1 pl-5">
-                <li>Validate that the linked report is an approved Accrual.</li>
+              {isManualReturn ? (
+                <ul className="mt-2 list-disc space-y-1 pl-5">
+                  <li>
+                    Validate that the linked report is an approved Sales Report
+                    or Accrual.
+                  </li>
 
-                <li>Inherit Supplier, Contract, and Accounting Periods.</li>
+                  <li>
+                    Inherit Supplier, Contract, Report Period(s), and Posting
+                    Period(s) from the linked report.
+                  </li>
 
-                <li>Copy approved processed rows from Cur_Invoice_Detail.</li>
+                  <li>Use the Return rows entered manually above.</li>
 
-                <li>Reverse Purchase Dollars and CAF Dollars.</li>
+                  <li>
+                    Do not automatically copy or reverse the linked report
+                    detail rows.
+                  </li>
 
-                <li>
-                  Stage the Return for the scheduled Informatica workflow.
-                </li>
-              </ul>
+                  <li>
+                    Stage the manually entered Return for the scheduled
+                    Informatica workflow.
+                  </li>
+                </ul>
+              ) : (
+                <ul className="mt-2 list-disc space-y-1 pl-5">
+                  <li>
+                    Validate that the linked report is an approved Sales Report
+                    or Accrual.
+                  </li>
+
+                  <li>
+                    Inherit Supplier, Contract, Report Period(s), and Posting
+                    Period(s) from the linked report.
+                  </li>
+
+                  <li>Copy approved processed rows from Cur_Invoice_Detail.</li>
+
+                  <li>Reverse Purchase Dollars and CAF Dollars.</li>
+
+                  <li>
+                    Stage the Return for the scheduled Informatica workflow.
+                  </li>
+                </ul>
+              )}
             </div>
           </div>
         )}
