@@ -3,12 +3,16 @@
 // Manual Report / Adjustment / Return Creation
 // ----------------------------------------------------------------------
 // Report
-//   - User selects open accounting periods, supplier, and contract.
+//   - User selects Report Period(s) and Posting Period(s), supplier, and contract.
+//   - Report Period(s) are used for reporting/searching and are not locked.
+//   - Posting Period(s) are accounting periods and must be open.
 //   - User manually enters detail rows.
 //   - Linked report is not required.
 //
 // Adjustment
-//   - User selects open accounting periods, supplier, and contract.
+//   - User selects Report Period(s) and Posting Period(s), supplier, and contract.
+//   - Report Period(s) are used for reporting/searching and are not locked.
+//   - Posting Period(s) are accounting periods and must be open.
 //   - User manually enters detail rows.
 //   - Linked original report is required.
 //
@@ -19,11 +23,13 @@
 //   - Backend copies approved rows from Cur_Invoice_Detail.
 //   - Backend reverses Purchase_Dollars_Calc and CAF_Dollars.
 //
-// Accounting period freeze:
-//   - Loads open/closed periods from /reports/accounting-periods.
-//   - Closed periods cannot be added for Report or Adjustment.
-//   - Previously selected periods are revalidated before submission.
-//   - Backend validation must also be implemented.
+// Period model:
+//   - Report Period(s) are selected independently and are not lock-validated.
+//   - Posting Period(s) are checked against /reports/accounting-periods.
+//   - Closed Posting Period(s) cannot be added for Report or Adjustment.
+//   - Previously selected Posting Period(s) are revalidated before submission.
+//   - For a Posting Period range, the ending month is the NetSuite posting period.
+//   - Return behavior is unchanged and continues to inherit periods in the backend.
 //
 // Common functionality:
 //   - Uses session-based apiFetch().
@@ -332,6 +338,22 @@ const isPositiveInteger = (value) => {
   return Number.isInteger(numberValue) && numberValue > 0;
 };
 
+const formatPeriodRangeLabel = (periods, singleLabel = "Period") => {
+  const normalized = normalizePeriods(periods);
+
+  if (normalized.length === 0) {
+    return "";
+  }
+
+  if (normalized.length === 1) {
+    return `${singleLabel}: ${normalized[0]}`;
+  }
+
+  return `Start Period: ${normalized[0]}  End Period: ${
+    normalized[normalized.length - 1]
+  }`;
+};
+
 const normalizePeriodRecords = (data) => {
   const rawPeriods = Array.isArray(data?.periods)
     ? data.periods
@@ -389,14 +411,22 @@ export default function ManualReportCreate() {
 
   const [form, setForm] = useState({
     report_type: "Report",
-    periods: [],
+
+    // Report Period(s): reporting/search only; no accounting lock.
+    report_periods: [],
+
+    // Posting Period(s): accounting/NetSuite periods; lock validation applies.
+    posting_periods: [],
+
     bp_code: "",
     contract_id: "",
     related_report_number: "",
     note: "",
   });
 
-  const [periodInput, setPeriodInput] = useState("");
+  const [reportPeriodInput, setReportPeriodInput] = useState("");
+
+  const [postingPeriodInput, setPostingPeriodInput] = useState("");
 
   const [rows, setRows] = useState([emptyRow()]);
 
@@ -476,21 +506,38 @@ export default function ManualReportCreate() {
     return map;
   }, [accountingPeriods]);
 
-  const selectedPeriodRecord = periodInput
-    ? periodStatusMap.get(periodInput)
+  const selectedPostingPeriodRecord = postingPeriodInput
+    ? periodStatusMap.get(postingPeriodInput)
     : null;
 
-  const selectedPeriodIsClosed =
-    selectedPeriodRecord?.status === PERIOD_STATUS.CLOSED;
+  const selectedPostingPeriodIsClosed =
+    selectedPostingPeriodRecord?.status === PERIOD_STATUS.CLOSED;
 
-  const closedSelectedPeriods = useMemo(
+  const closedSelectedPostingPeriods = useMemo(
     () =>
-      form.periods.filter(
+      form.posting_periods.filter(
         (selectedPeriod) =>
           periodStatusMap.get(selectedPeriod)?.status === PERIOD_STATUS.CLOSED,
       ),
-    [form.periods, periodStatusMap],
+    [form.posting_periods, periodStatusMap],
   );
+
+  const reportPeriodDisplay = useMemo(
+    () => formatPeriodRangeLabel(form.report_periods, "Report Period"),
+    [form.report_periods],
+  );
+
+  const postingPeriodDisplay = useMemo(
+    () => formatPeriodRangeLabel(form.posting_periods, "Posting Period"),
+    [form.posting_periods],
+  );
+
+  const finalPostingPeriod =
+    form.posting_periods.length > 0
+      ? normalizePeriods(form.posting_periods)[
+          normalizePeriods(form.posting_periods).length - 1
+        ]
+      : null;
 
   const openPeriodCount = useMemo(
     () =>
@@ -566,7 +613,8 @@ export default function ManualReportCreate() {
          * the linked Accrual.
          */
         if (value === "Return") {
-          next.periods = [];
+          next.report_periods = [];
+          next.posting_periods = [];
           next.bp_code = "";
           next.contract_id = "";
         }
@@ -576,7 +624,8 @@ export default function ManualReportCreate() {
     });
 
     if (name === "report_type" && value === "Return") {
-      setPeriodInput("");
+      setReportPeriodInput("");
+      setPostingPeriodInput("");
     }
 
     if (
@@ -592,15 +641,55 @@ export default function ManualReportCreate() {
   // PERIOD HANDLERS
   // ====================================================================
 
-  const addPeriod = () => {
-    const selectedPeriod = String(periodInput || "").trim();
+  const addReportPeriod = () => {
+    const selectedPeriod = String(reportPeriodInput || "").trim();
 
     setError("");
     setWarnings([]);
 
     if (!selectedPeriod) {
-      setError("Select a period before clicking Add Period.");
+      setError("Select a Report Period before clicking Add.");
+      return;
+    }
 
+    if (form.report_periods.includes(selectedPeriod)) {
+      setError(
+        `${formatPeriod(selectedPeriod)} has already been selected as a Report Period.`,
+      );
+      return;
+    }
+
+    setForm((previous) => ({
+      ...previous,
+      report_periods: normalizePeriods([
+        ...previous.report_periods,
+        selectedPeriod,
+      ]),
+    }));
+
+    setReportPeriodInput("");
+  };
+
+  const removeReportPeriod = (periodToRemove) => {
+    setError("");
+    setWarnings([]);
+
+    setForm((previous) => ({
+      ...previous,
+      report_periods: previous.report_periods.filter(
+        (period) => period !== periodToRemove,
+      ),
+    }));
+  };
+
+  const addPostingPeriod = () => {
+    const selectedPeriod = String(postingPeriodInput || "").trim();
+
+    setError("");
+    setWarnings([]);
+
+    if (!selectedPeriod) {
+      setError("Select a Posting Period before clicking Add.");
       return;
     }
 
@@ -608,37 +697,43 @@ export default function ManualReportCreate() {
 
     if (periodRecord?.status === PERIOD_STATUS.CLOSED) {
       setError(
-        `${formatPeriod(selectedPeriod)} is closed and cannot be selected.${
+        `${formatPeriod(selectedPeriod)} is closed and cannot be selected as a Posting Period.${
           periodRecord.reason ? ` Reason: ${periodRecord.reason}` : ""
         }`,
       );
-
       return;
     }
 
-    if (form.periods.includes(selectedPeriod)) {
-      setError(`${formatPeriod(selectedPeriod)} has already been selected.`);
-
+    if (form.posting_periods.includes(selectedPeriod)) {
+      setError(
+        `${formatPeriod(selectedPeriod)} has already been selected as a Posting Period.`,
+      );
       return;
     }
 
     setForm((previous) => ({
       ...previous,
-      periods: normalizePeriods([...previous.periods, selectedPeriod]),
+      posting_periods: normalizePeriods([
+        ...previous.posting_periods,
+        selectedPeriod,
+      ]),
     }));
 
-    setPeriodInput("");
+    setPostingPeriodInput("");
   };
 
-  const removePeriod = (periodToRemove) => {
+  const removePostingPeriod = (periodToRemove) => {
     setError("");
     setWarnings([]);
 
     setForm((previous) => ({
       ...previous,
-      periods: previous.periods.filter((period) => period !== periodToRemove),
+      posting_periods: previous.posting_periods.filter(
+        (period) => period !== periodToRemove,
+      ),
     }));
   };
+
   const loadContractsForSupplier = async (supplierCode) => {
     const normalizedSupplierCode = String(supplierCode || "").trim();
 
@@ -888,22 +983,29 @@ export default function ManualReportCreate() {
     }
 
     /*
-     * Report and Adjustment require periods.
-     * Return inherits periods.
+     * Report and Adjustment require both period concepts.
+     * Return behavior is unchanged and inherits periods in the backend.
      */
     if (
       !isReturn &&
-      (!Array.isArray(form.periods) || form.periods.length === 0)
+      (!Array.isArray(form.report_periods) || form.report_periods.length === 0)
     ) {
-      return "At least one accounting period is required.";
+      return "At least one Report Period is required.";
+    }
+
+    if (
+      !isReturn &&
+      (!Array.isArray(form.posting_periods) ||
+        form.posting_periods.length === 0)
+    ) {
+      return "At least one Posting Period is required.";
     }
 
     /*
-     * Recheck selected periods in case
-     * one was closed after selection.
+     * Only Posting Period(s) are checked against accounting-period locks.
      */
-    if (!isReturn && closedSelectedPeriods.length > 0) {
-      return `The following accounting period(s) are closed and cannot be submitted: ${closedSelectedPeriods
+    if (!isReturn && closedSelectedPostingPeriods.length > 0) {
+      return `The following Posting Period(s) are closed and cannot be submitted: ${closedSelectedPostingPeriods
         .map(formatPeriod)
         .join(", ")}.`;
     }
@@ -987,7 +1089,18 @@ export default function ManualReportCreate() {
       return;
     }
 
-    const selectedPeriods = isReturn ? [] : normalizePeriods(form.periods);
+    const selectedReportPeriods = isReturn
+      ? []
+      : normalizePeriods(form.report_periods);
+
+    const selectedPostingPeriods = isReturn
+      ? []
+      : normalizePeriods(form.posting_periods);
+
+    const postingPeriod =
+      selectedPostingPeriods.length > 0
+        ? selectedPostingPeriods[selectedPostingPeriods.length - 1]
+        : null;
 
     const warningList = validateForWarnings();
 
@@ -1019,9 +1132,13 @@ export default function ManualReportCreate() {
     const payload = {
       report_type: form.report_type,
 
-      period: selectedPeriods.length > 0 ? selectedPeriods[0] : null,
+      // New period model.
+      report_periods: selectedReportPeriods,
 
-      periods: selectedPeriods,
+      posting_periods: selectedPostingPeriods,
+
+      // End/latest Posting Period drives the downstream NetSuite posting date.
+      posting_period: postingPeriod,
 
       bp_code: isReturn ? null : form.bp_code.trim() || null,
 
@@ -1209,7 +1326,7 @@ export default function ManualReportCreate() {
                     <p className="font-semibold">Return information</p>
 
                     <p className="mt-1">
-                      Supplier, Contract, and Accounting Periods will be
+                      Supplier, Contract, and period information will be
                       inherited from the linked approved Accrual report.
                       Approved processed rows will be copied automatically.
                       Purchase Dollars and CAF Dollars will be reversed by the
@@ -1220,15 +1337,22 @@ export default function ManualReportCreate() {
               </div>
             )}
 
-            {/* PERIOD SELECTOR */}
+            {/* PERIOD SELECTORS */}
 
             {!isReturn && (
               <div className="md:col-span-3">
-                <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-                  <label className="block text-sm font-medium">
-                    Accounting Period(s)
-                    <span className="ml-1 text-red-500">*</span>
-                  </label>
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-800">
+                      Period Details
+                    </h3>
+
+                    <p className="mt-1 text-xs text-slate-500">
+                      Report Period(s) are used for reporting/searching. Posting
+                      Period(s) are accounting periods and control downstream
+                      posting.
+                    </p>
+                  </div>
 
                   <button
                     type="button"
@@ -1241,17 +1365,17 @@ export default function ManualReportCreate() {
                     ) : (
                       <RefreshCw className="h-3.5 w-3.5" />
                     )}
-                    Refresh period status
+                    Refresh posting period status
                   </button>
                 </div>
 
-                {/* PERIOD STATUS SUMMARY */}
+                {/* ACCOUNTING PERIOD STATUS SUMMARY */}
 
                 <div className="mb-3 flex flex-wrap items-center gap-3 text-xs">
                   {periodsLoading ? (
                     <span className="inline-flex items-center gap-1 text-slate-500">
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      Loading accounting periods...
+                      Loading posting period status...
                     </span>
                   ) : (
                     <>
@@ -1268,8 +1392,6 @@ export default function ManualReportCreate() {
                   )}
                 </div>
 
-                {/* PERIOD LOAD ERROR */}
-
                 {periodsLoadError && (
                   <div className="mb-3 flex items-start justify-between gap-3 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
                     <div className="flex items-start gap-2">
@@ -1277,146 +1399,242 @@ export default function ManualReportCreate() {
 
                       <div>
                         <p className="font-medium">
-                          Period status is unavailable
+                          Posting period status is unavailable
                         </p>
 
                         <p className="mt-1">{periodsLoadError}</p>
 
                         <p className="mt-1 text-xs">
-                          Period selection is still available, but the backend
-                          must validate whether the month is open or closed.
+                          Report Period selection remains available. Posting
+                          Period selection is also available, but the backend
+                          must validate whether the selected accounting period
+                          is open or closed.
                         </p>
                       </div>
                     </div>
                   </div>
                 )}
 
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <input
-                    type="month"
-                    value={periodInput}
-                    onChange={(event) => {
-                      setPeriodInput(event.target.value);
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                  {/* REPORT PERIOD(S) */}
 
-                      setError("");
-                      setWarnings([]);
-                    }}
-                    className={`w-full rounded border px-3 py-2 ${
-                      selectedPeriodIsClosed ? "border-red-400 bg-red-50" : ""
-                    }`}
-                    disabled={saving || periodsLoading}
-                  />
+                  <div className="rounded-lg border border-sky-200 bg-sky-50/40 p-4">
+                    <label className="mb-1 block text-sm font-medium text-slate-800">
+                      Report Period(s)
+                      <span className="ml-1 text-red-500">*</span>
+                    </label>
 
-                  <button
-                    type="button"
-                    onClick={addPeriod}
-                    disabled={
-                      saving || periodsLoading || selectedPeriodIsClosed
-                    }
-                    className="inline-flex shrink-0 items-center justify-center gap-2 rounded bg-emerald-600 px-4 py-2 font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-gray-400"
-                  >
-                    {selectedPeriodIsClosed ? (
-                      <LockKeyhole className="h-4 w-4" />
+                    <p className="mb-3 text-xs text-slate-500">
+                      Used for report search and reporting. Report Periods are
+                      not affected by accounting-period locks.
+                    </p>
+
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <input
+                        type="month"
+                        value={reportPeriodInput}
+                        onChange={(event) => {
+                          setReportPeriodInput(event.target.value);
+                          setError("");
+                          setWarnings([]);
+                        }}
+                        className="w-full rounded border px-3 py-2"
+                        disabled={saving}
+                      />
+
+                      <button
+                        type="button"
+                        onClick={addReportPeriod}
+                        disabled={saving || !reportPeriodInput}
+                        className="inline-flex shrink-0 items-center justify-center gap-2 rounded bg-emerald-600 px-4 py-2 font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-gray-400"
+                      >
+                        <CalendarPlus className="h-4 w-4" />
+                        Add
+                      </button>
+                    </div>
+
+                    {form.report_periods.length > 0 ? (
+                      <>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {form.report_periods.map((selectedPeriod) => (
+                            <span
+                              key={selectedPeriod}
+                              className="inline-flex items-center gap-2 rounded-full bg-sky-100 px-3 py-1 text-sm font-medium text-sky-800"
+                            >
+                              {formatPeriod(selectedPeriod)}
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  removeReportPeriod(selectedPeriod)
+                                }
+                                disabled={saving}
+                                className="rounded-full p-0.5 hover:bg-black/5 disabled:cursor-not-allowed"
+                                aria-label={`Remove Report Period ${formatPeriod(
+                                  selectedPeriod,
+                                )}`}
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+
+                        <div className="mt-3 rounded border border-sky-200 bg-white px-3 py-2 text-xs font-medium text-sky-800">
+                          {reportPeriodDisplay}
+                        </div>
+                      </>
                     ) : (
-                      <CalendarPlus className="h-4 w-4" />
+                      <p className="mt-3 text-xs text-slate-500">
+                        Select one month or add a beginning and ending month for
+                        a Report Period range.
+                      </p>
+                    )}
+                  </div>
+
+                  {/* POSTING PERIOD(S) */}
+
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50/40 p-4">
+                    <label className="mb-1 block text-sm font-medium text-slate-800">
+                      Posting Period(s)
+                      <span className="ml-1 text-red-500">*</span>
+                    </label>
+
+                    <p className="mb-3 text-xs text-slate-500">
+                      Used for accounting/NetSuite posting. Closed Posting
+                      Periods cannot be selected.
+                    </p>
+
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <input
+                        type="month"
+                        value={postingPeriodInput}
+                        onChange={(event) => {
+                          setPostingPeriodInput(event.target.value);
+                          setError("");
+                          setWarnings([]);
+                        }}
+                        className={`w-full rounded border px-3 py-2 ${
+                          selectedPostingPeriodIsClosed
+                            ? "border-red-400 bg-red-50"
+                            : ""
+                        }`}
+                        disabled={saving || periodsLoading}
+                      />
+
+                      <button
+                        type="button"
+                        onClick={addPostingPeriod}
+                        disabled={
+                          saving ||
+                          periodsLoading ||
+                          selectedPostingPeriodIsClosed ||
+                          !postingPeriodInput
+                        }
+                        className="inline-flex shrink-0 items-center justify-center gap-2 rounded bg-emerald-600 px-4 py-2 font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-gray-400"
+                      >
+                        {selectedPostingPeriodIsClosed ? (
+                          <LockKeyhole className="h-4 w-4" />
+                        ) : (
+                          <CalendarPlus className="h-4 w-4" />
+                        )}
+
+                        {selectedPostingPeriodIsClosed
+                          ? "Period Closed"
+                          : "Add"}
+                      </button>
+                    </div>
+
+                    {postingPeriodInput && selectedPostingPeriodRecord && (
+                      <div
+                        className={`mt-2 flex items-start gap-2 rounded p-3 text-sm ${
+                          selectedPostingPeriodIsClosed
+                            ? "border border-red-200 bg-red-50 text-red-700"
+                            : "border border-emerald-200 bg-emerald-50 text-emerald-700"
+                        }`}
+                      >
+                        {selectedPostingPeriodIsClosed ? (
+                          <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0" />
+                        ) : (
+                          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                        )}
+
+                        <div>
+                          <p className="font-medium">
+                            {formatPeriod(postingPeriodInput)} is{" "}
+                            {selectedPostingPeriodIsClosed ? "closed" : "open"}
+                          </p>
+
+                          {selectedPostingPeriodRecord.reason && (
+                            <p className="mt-1">
+                              {selectedPostingPeriodRecord.reason}
+                            </p>
+                          )}
+                        </div>
+                      </div>
                     )}
 
-                    {selectedPeriodIsClosed ? "Period Closed" : "Add Period"}
-                  </button>
+                    {form.posting_periods.length > 0 ? (
+                      <>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {form.posting_periods.map((selectedPeriod) => {
+                            const isClosed =
+                              periodStatusMap.get(selectedPeriod)?.status ===
+                              PERIOD_STATUS.CLOSED;
+
+                            return (
+                              <span
+                                key={selectedPeriod}
+                                className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-sm font-medium ${
+                                  isClosed
+                                    ? "bg-red-50 text-red-700"
+                                    : "bg-emerald-100 text-emerald-800"
+                                }`}
+                              >
+                                {isClosed && (
+                                  <LockKeyhole className="h-3.5 w-3.5" />
+                                )}
+
+                                {formatPeriod(selectedPeriod)}
+
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    removePostingPeriod(selectedPeriod)
+                                  }
+                                  disabled={saving}
+                                  className="rounded-full p-0.5 hover:bg-black/5 disabled:cursor-not-allowed"
+                                  aria-label={`Remove Posting Period ${formatPeriod(
+                                    selectedPeriod,
+                                  )}`}
+                                >
+                                  <X className="h-3.5 w-3.5" />
+                                </button>
+                              </span>
+                            );
+                          })}
+                        </div>
+
+                        <div className="mt-3 rounded border border-emerald-200 bg-white px-3 py-2 text-xs font-medium text-emerald-800">
+                          <div>{postingPeriodDisplay}</div>
+
+                          {form.posting_periods.length > 1 &&
+                            finalPostingPeriod && (
+                              <div className="mt-1">
+                                NetSuite Posting Period: {finalPostingPeriod}
+                              </div>
+                            )}
+                        </div>
+                      </>
+                    ) : (
+                      <p className="mt-3 text-xs text-slate-500">
+                        Select one month or add a beginning and ending month for
+                        a Posting Period range. The ending month is used as the
+                        NetSuite posting period.
+                      </p>
+                    )}
+                  </div>
                 </div>
-
-                {/* SELECTED PERIOD STATUS */}
-
-                {periodInput && selectedPeriodRecord && (
-                  <div
-                    className={`mt-2 flex items-start gap-2 rounded p-3 text-sm ${
-                      selectedPeriodIsClosed
-                        ? "border border-red-200 bg-red-50 text-red-700"
-                        : "border border-emerald-200 bg-emerald-50 text-emerald-700"
-                    }`}
-                  >
-                    {selectedPeriodIsClosed ? (
-                      <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0" />
-                    ) : (
-                      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-                    )}
-
-                    <div>
-                      <p className="font-medium">
-                        {formatPeriod(periodInput)} is{" "}
-                        {selectedPeriodIsClosed ? "closed" : "open"}
-                      </p>
-
-                      {selectedPeriodRecord.reason && (
-                        <p className="mt-1">{selectedPeriodRecord.reason}</p>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* SELECTED PERIOD CHIPS */}
-
-                {form.periods.length > 0 ? (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {form.periods.map((selectedPeriod) => {
-                      const isClosed =
-                        periodStatusMap.get(selectedPeriod)?.status ===
-                        PERIOD_STATUS.CLOSED;
-
-                      return (
-                        <span
-                          key={selectedPeriod}
-                          className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-sm font-medium ${
-                            isClosed
-                              ? "bg-red-50 text-red-700"
-                              : "bg-indigo-50 text-indigo-700"
-                          }`}
-                        >
-                          {isClosed && <LockKeyhole className="h-3.5 w-3.5" />}
-
-                          {formatPeriod(selectedPeriod)}
-
-                          <button
-                            type="button"
-                            onClick={() => removePeriod(selectedPeriod)}
-                            disabled={saving}
-                            className="rounded-full p-0.5 hover:bg-black/5 disabled:cursor-not-allowed"
-                            aria-label={`Remove ${formatPeriod(
-                              selectedPeriod,
-                            )}`}
-                            title="Remove period"
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        </span>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <p className="mt-2 text-sm text-slate-500">
-                    Select an open month and click Add Period. Multiple
-                    accounting periods can be selected.
-                  </p>
-                )}
-
-                {/* CLOSED SELECTED PERIOD WARNING */}
-
-                {closedSelectedPeriods.length > 0 && (
-                  <div className="mt-3 flex items-start gap-2 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-                    <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0" />
-
-                    <div>
-                      <p className="font-semibold">
-                        A selected period is now closed
-                      </p>
-
-                      <p className="mt-1">
-                        Remove the following period(s) before submitting:{" "}
-                        {closedSelectedPeriods.map(formatPeriod).join(", ")}.
-                      </p>
-                    </div>
-                  </div>
-                )}
               </div>
             )}
 
@@ -1712,9 +1930,11 @@ export default function ManualReportCreate() {
 
           <button
             type="submit"
-            disabled={saving || (!isReturn && closedSelectedPeriods.length > 0)}
+            disabled={
+              saving || (!isReturn && closedSelectedPostingPeriods.length > 0)
+            }
             className={`rounded px-4 py-2 font-semibold text-white ${
-              saving || (!isReturn && closedSelectedPeriods.length > 0)
+              saving || (!isReturn && closedSelectedPostingPeriods.length > 0)
                 ? "cursor-not-allowed bg-gray-400"
                 : "bg-indigo-600 hover:bg-indigo-700"
             }`}
