@@ -80,6 +80,43 @@ function normalizePeriodRecord(record) {
   };
 }
 
+function normalizeHistoryRecord(record) {
+  return {
+    audit_id:
+      record?.audit_id ??
+      record?.Audit_ID ??
+      record?.accounting_period_audit_id ??
+      null,
+
+    period: record?.period ?? record?.Period ?? "",
+
+    action: String(record?.action ?? record?.Action ?? "")
+      .trim()
+      .toUpperCase(),
+
+    reason:
+      record?.reason ??
+      record?.Reason ??
+      record?.change_reason ??
+      record?.Change_Reason ??
+      "",
+
+    changed_by:
+      record?.changed_by ??
+      record?.Changed_By ??
+      record?.user_email ??
+      record?.User_Email ??
+      "—",
+
+    changed_at_utc:
+      record?.changed_at_utc ??
+      record?.Changed_At_UTC ??
+      record?.created_at_utc ??
+      record?.Created_At_UTC ??
+      null,
+  };
+}
+
 export default function ManageAccountingPeriods() {
   const [periods, setPeriods] = useState([]);
 
@@ -98,6 +135,26 @@ export default function ManageAccountingPeriods() {
   const [successMessage, setSuccessMessage] = useState("");
 
   const [errorMessage, setErrorMessage] = useState("");
+
+  // ====================================================================
+  // ACCOUNTING PERIOD AUDIT HISTORY
+  // ====================================================================
+
+  const [history, setHistory] = useState([]);
+
+  const [historyLoading, setHistoryLoading] = useState(true);
+
+  const [historyRefreshing, setHistoryRefreshing] = useState(false);
+
+  const [historyError, setHistoryError] = useState("");
+
+  const [historySearch, setHistorySearch] = useState("");
+
+  const [historyActionFilter, setHistoryActionFilter] = useState("");
+
+  const [historyPage, setHistoryPage] = useState(1);
+
+  const [historyPageSize, setHistoryPageSize] = useState(25);
 
   const clearMessages = useCallback(() => {
     setSuccessMessage("");
@@ -147,9 +204,64 @@ export default function ManageAccountingPeriods() {
     [clearMessages],
   );
 
+  const loadAccountingPeriodHistory = useCallback(
+    async ({ refresh = false } = {}) => {
+      setHistoryError("");
+
+      if (refresh) {
+        setHistoryRefreshing(true);
+      } else {
+        setHistoryLoading(true);
+      }
+
+      try {
+        /*
+         * New endpoint required by the client enhancement.
+         *
+         * The backend route will return lock/unlock events for the prior
+         * two years. This frontend intentionally handles the endpoint
+         * independently from the current-period API.
+         */
+        const data = await apiFetch(
+          apiUrl("/reports/accounting-periods/history?years=2"),
+        );
+
+        if (!data) {
+          throw new Error(
+            "Your session may have expired. Please sign in again.",
+          );
+        }
+
+        const records = Array.isArray(data?.history)
+          ? data.history
+          : Array.isArray(data?.items)
+            ? data.items
+            : Array.isArray(data)
+              ? data
+              : [];
+
+        setHistory(records.map(normalizeHistoryRecord));
+      } catch (error) {
+        console.error("Load accounting period history failed:", error);
+
+        setHistory([]);
+
+        setHistoryError(
+          error?.message ||
+            "Unable to load accounting period lock/unlock history.",
+        );
+      } finally {
+        setHistoryLoading(false);
+        setHistoryRefreshing(false);
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
     loadAccountingPeriods();
-  }, [loadAccountingPeriods]);
+    loadAccountingPeriodHistory();
+  }, [loadAccountingPeriods, loadAccountingPeriodHistory]);
 
   const periodCounts = useMemo(() => {
     const total = periods.length;
@@ -164,6 +276,61 @@ export default function ManageAccountingPeriods() {
       locked,
     };
   }, [periods]);
+
+  const filteredHistory = useMemo(() => {
+    let list = [...history];
+
+    const queryValue = String(historySearch || "")
+      .trim()
+      .toLowerCase();
+
+    if (queryValue) {
+      list = list.filter((item) =>
+        [
+          item.period,
+          formatPeriod(item.period),
+          item.action,
+          item.reason,
+          item.changed_by,
+          formatUtcDate(item.changed_at_utc),
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase()
+          .includes(queryValue),
+      );
+    }
+
+    if (historyActionFilter) {
+      list = list.filter((item) => item.action === historyActionFilter);
+    }
+
+    list.sort((left, right) => {
+      const leftTime = Date.parse(left.changed_at_utc || "") || 0;
+      const rightTime = Date.parse(right.changed_at_utc || "") || 0;
+
+      return rightTime - leftTime;
+    });
+
+    return list;
+  }, [history, historySearch, historyActionFilter]);
+
+  const historyTotalPages = Math.max(
+    1,
+    Math.ceil(filteredHistory.length / historyPageSize),
+  );
+
+  const pagedHistory = useMemo(() => {
+    const start = (historyPage - 1) * historyPageSize;
+
+    return filteredHistory.slice(start, start + historyPageSize);
+  }, [filteredHistory, historyPage, historyPageSize]);
+
+  useEffect(() => {
+    if (historyPage > historyTotalPages) {
+      setHistoryPage(historyTotalPages);
+    }
+  }, [historyPage, historyTotalPages]);
 
   const handleCreatePeriod = async (event) => {
     event.preventDefault();
@@ -248,6 +415,22 @@ export default function ManageAccountingPeriods() {
       return;
     }
 
+    const reasonInput = window.prompt(
+      `Please enter the reason for locking ${formatPeriod(period)}:`,
+      "",
+    );
+
+    if (reasonInput === null) {
+      return;
+    }
+
+    const reason = String(reasonInput || "").trim();
+
+    if (!reason) {
+      setErrorMessage("A reason is required to lock an accounting period.");
+      return;
+    }
+
     setProcessingPeriod(period);
     setProcessingAction("lock");
 
@@ -258,6 +441,9 @@ export default function ManageAccountingPeriods() {
         apiUrl(`/reports/accounting-periods/${encodedPeriod}/lock`),
         {
           method: "PUT",
+          body: JSON.stringify({
+            reason,
+          }),
         },
       );
 
@@ -286,6 +472,10 @@ export default function ManageAccountingPeriods() {
           );
         }),
       );
+
+      await loadAccountingPeriodHistory({
+        refresh: true,
+      });
     } catch (error) {
       console.error("Lock accounting period failed:", error);
 
@@ -318,6 +508,22 @@ export default function ManageAccountingPeriods() {
       return;
     }
 
+    const reasonInput = window.prompt(
+      `Please enter the reason for unlocking ${formatPeriod(period)}:`,
+      "",
+    );
+
+    if (reasonInput === null) {
+      return;
+    }
+
+    const reason = String(reasonInput || "").trim();
+
+    if (!reason) {
+      setErrorMessage("A reason is required to unlock an accounting period.");
+      return;
+    }
+
     setProcessingPeriod(period);
     setProcessingAction("unlock");
 
@@ -328,6 +534,9 @@ export default function ManageAccountingPeriods() {
         apiUrl(`/reports/accounting-periods/${encodedPeriod}/unlock`),
         {
           method: "PUT",
+          body: JSON.stringify({
+            reason,
+          }),
         },
       );
 
@@ -357,6 +566,10 @@ export default function ManageAccountingPeriods() {
           );
         }),
       );
+
+      await loadAccountingPeriodHistory({
+        refresh: true,
+      });
     } catch (error) {
       console.error("Unlock accounting period failed:", error);
 
@@ -384,7 +597,8 @@ export default function ManageAccountingPeriods() {
 
             <p className="mt-1 text-sm text-slate-600">
               Create, lock, and unlock accounting periods used during report
-              submission.
+              submission. Lock and unlock activity is retained in the audit
+              history.
             </p>
           </div>
 
@@ -667,9 +881,232 @@ export default function ManageAccountingPeriods() {
           )}
         </div>
 
+        {/* Accounting period audit history */}
+        <div className="mt-6 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-200 px-5 py-4">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">
+                  Accounting Period Audit History
+                </h2>
+
+                <p className="mt-1 text-sm text-slate-600">
+                  Shows each lock and unlock event from the prior two years.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() =>
+                  loadAccountingPeriodHistory({
+                    refresh: true,
+                  })
+                }
+                disabled={historyRefreshing || historyLoading}
+                className="inline-flex items-center justify-center rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {historyRefreshing ? "Refreshing..." : "Refresh History"}
+              </button>
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+              <input
+                type="text"
+                value={historySearch}
+                onChange={(event) => {
+                  setHistorySearch(event.target.value);
+                  setHistoryPage(1);
+                }}
+                placeholder="Search period, reason, or user"
+                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 md:col-span-2"
+              />
+
+              <select
+                value={historyActionFilter}
+                onChange={(event) => {
+                  setHistoryActionFilter(event.target.value);
+                  setHistoryPage(1);
+                }}
+                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+              >
+                <option value="">All Actions</option>
+                <option value="LOCK">Lock</option>
+                <option value="UNLOCK">Unlock</option>
+              </select>
+            </div>
+          </div>
+
+          {historyError && (
+            <div className="border-b border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-800">
+              {historyError}
+            </div>
+          )}
+
+          {historyLoading ? (
+            <div className="px-6 py-16 text-center">
+              <div className="text-sm font-medium text-slate-600">
+                Loading accounting period audit history...
+              </div>
+            </div>
+          ) : filteredHistory.length === 0 ? (
+            <div className="px-6 py-16 text-center">
+              <p className="text-sm font-medium text-slate-700">
+                No lock/unlock audit history found.
+              </p>
+
+              <p className="mt-1 text-sm text-slate-500">
+                New lock and unlock actions will appear here after the backend
+                audit-history enhancement is deployed.
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="max-h-[420px] overflow-auto">
+                <table className="min-w-full divide-y divide-slate-200">
+                  <thead className="sticky top-0 z-10 bg-slate-50">
+                    <tr>
+                      <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
+                        Period
+                      </th>
+
+                      <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
+                        Action
+                      </th>
+
+                      <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
+                        Reason
+                      </th>
+
+                      <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
+                        Changed By
+                      </th>
+
+                      <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
+                        Changed Date
+                      </th>
+                    </tr>
+                  </thead>
+
+                  <tbody className="divide-y divide-slate-200 bg-white">
+                    {pagedHistory.map((item, index) => (
+                      <tr
+                        key={
+                          item.audit_id ||
+                          `${item.period}-${item.action}-${item.changed_at_utc}-${index}`
+                        }
+                        className="hover:bg-slate-50"
+                      >
+                        <td className="whitespace-nowrap px-5 py-4">
+                          <div className="font-semibold text-slate-900">
+                            {formatPeriod(item.period)}
+                          </div>
+
+                          <div className="mt-0.5 text-xs text-slate-500">
+                            {item.period || "—"}
+                          </div>
+                        </td>
+
+                        <td className="whitespace-nowrap px-5 py-4">
+                          {item.action === "LOCK" ? (
+                            <span className="inline-flex rounded-full bg-red-100 px-3 py-1 text-xs font-semibold text-red-800">
+                              Lock
+                            </span>
+                          ) : item.action === "UNLOCK" ? (
+                            <span className="inline-flex rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-800">
+                              Unlock
+                            </span>
+                          ) : (
+                            <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                              {item.action || "—"}
+                            </span>
+                          )}
+                        </td>
+
+                        <td className="max-w-md whitespace-normal px-5 py-4 text-sm text-slate-700">
+                          {item.reason || "—"}
+                        </td>
+
+                        <td className="px-5 py-4 text-sm text-slate-700">
+                          {item.changed_by || "—"}
+                        </td>
+
+                        <td className="whitespace-nowrap px-5 py-4 text-sm text-slate-700">
+                          {formatUtcDate(item.changed_at_utc)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="flex flex-col gap-3 border-t border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-2 text-sm text-slate-600">
+                  <span>Rows per page:</span>
+
+                  <select
+                    value={historyPageSize}
+                    onChange={(event) => {
+                      setHistoryPageSize(Number(event.target.value));
+                      setHistoryPage(1);
+                    }}
+                    className="rounded border border-slate-300 bg-white px-2 py-1"
+                  >
+                    {[10, 25, 50, 100].map((size) => (
+                      <option key={size} value={size}>
+                        {size}
+                      </option>
+                    ))}
+                  </select>
+
+                  <span>
+                    {filteredHistory.length === 0
+                      ? "0–0 of 0"
+                      : `${(historyPage - 1) * historyPageSize + 1}–${Math.min(
+                          historyPage * historyPageSize,
+                          filteredHistory.length,
+                        )} of ${filteredHistory.length}`}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setHistoryPage((currentPage) =>
+                        Math.max(1, currentPage - 1),
+                      )
+                    }
+                    disabled={historyPage <= 1}
+                    className="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Prev
+                  </button>
+
+                  <span className="text-sm text-slate-600">
+                    Page {historyPage} / {historyTotalPages}
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setHistoryPage((currentPage) =>
+                        Math.min(historyTotalPages, currentPage + 1),
+                      )
+                    }
+                    disabled={historyPage >= historyTotalPages}
+                    className="rounded border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
         <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          <strong>Important:</strong> When a period is locked, Report,
-          Adjustment, and Return creation will be blocked for that period.
+          <strong>Important:</strong> When an accounting period is locked, it
+          cannot be selected as a Posting Period for new report submissions.
         </div>
       </div>
     </div>
