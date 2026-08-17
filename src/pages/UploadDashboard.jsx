@@ -149,6 +149,24 @@ function normalizePeriodKey(value) {
   return text;
 }
 
+function formatPeriodRangeLabel(periods, singularLabel = "Period") {
+  const normalized = [
+    ...new Set((periods || []).map(normalizePeriodKey).filter(Boolean)),
+  ].sort();
+
+  if (normalized.length === 0) {
+    return "";
+  }
+
+  if (normalized.length === 1) {
+    return `${singularLabel}: ${normalized[0]}`;
+  }
+
+  return `Start Period: ${normalized[0]}  End Period: ${
+    normalized[normalized.length - 1]
+  }`;
+}
+
 function normalizePeriodStatus(value) {
   const normalized = String(value || "")
     .trim()
@@ -331,9 +349,16 @@ export default function UploadDashboard() {
 
   const [reportType, setReportType] = useState("Report");
 
-  const [selectedPeriods, setSelectedPeriods] = useState([]);
+  // Report Period(s): used for searching and reporting.
+  // Report Period(s) are not controlled by accounting-period locks.
+  const [reportPeriods, setReportPeriods] = useState([]);
+  const [reportPeriodPicker, setReportPeriodPicker] = useState("");
 
-  const [periodPicker, setPeriodPicker] = useState("");
+  // Posting Period(s): accounting periods used for posting.
+  // Locked-period validation applies only to these periods.
+  // For a range, the ending month is sent as posting_period.
+  const [postingPeriods, setPostingPeriods] = useState([]);
+  const [postingPeriodPicker, setPostingPeriodPicker] = useState("");
 
   const [accountingPeriods, setAccountingPeriods] = useState([]);
 
@@ -596,33 +621,22 @@ export default function UploadDashboard() {
      PERIOD HANDLERS
   ==================================================================== */
 
-  const addSelectedPeriod = () => {
-    const selectedPeriod = normalizePeriodKey(periodPicker);
+  const addReportPeriod = () => {
+    const selectedPeriod = normalizePeriodKey(reportPeriodPicker);
 
     if (!selectedPeriod) {
       toast({
-        title: "Period required",
-        description: "Please choose a month before clicking Add.",
+        title: "Report Period required",
+        description: "Please choose a report month before clicking Add.",
         variant: "destructive",
       });
-
       return;
     }
 
-    if (lockedPeriodSet.has(selectedPeriod)) {
-      toast({
-        title: "Period is locked",
-        description: `${selectedPeriod} is locked and cannot be selected.`,
-        variant: "destructive",
-      });
-
-      return;
-    }
-
-    setSelectedPeriods((previousPeriods) => {
+    setReportPeriods((previousPeriods) => {
       if (previousPeriods.includes(selectedPeriod)) {
         toast({
-          title: "Period already selected",
+          title: "Report Period already selected",
           description: `${selectedPeriod} has already been added.`,
         });
 
@@ -632,14 +646,76 @@ export default function UploadDashboard() {
       return [...previousPeriods, selectedPeriod].sort();
     });
 
-    setPeriodPicker("");
+    setReportPeriodPicker("");
   };
 
-  const removeSelectedPeriod = (periodToRemove) => {
-    setSelectedPeriods((previousPeriods) =>
+  const removeReportPeriod = (periodToRemove) => {
+    setReportPeriods((previousPeriods) =>
       previousPeriods.filter((period) => period !== periodToRemove),
     );
   };
+
+  const addPostingPeriod = () => {
+    const selectedPeriod = normalizePeriodKey(postingPeriodPicker);
+
+    if (!selectedPeriod) {
+      toast({
+        title: "Posting Period required",
+        description: "Please choose a posting month before clicking Add.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (lockedPeriodSet.has(selectedPeriod)) {
+      toast({
+        title: "Posting Period is locked",
+        description: `${selectedPeriod} is locked and cannot be selected.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setPostingPeriods((previousPeriods) => {
+      if (previousPeriods.includes(selectedPeriod)) {
+        toast({
+          title: "Posting Period already selected",
+          description: `${selectedPeriod} has already been added.`,
+        });
+
+        return previousPeriods;
+      }
+
+      return [...previousPeriods, selectedPeriod].sort();
+    });
+
+    setPostingPeriodPicker("");
+  };
+
+  const removePostingPeriod = (periodToRemove) => {
+    setPostingPeriods((previousPeriods) =>
+      previousPeriods.filter((period) => period !== periodToRemove),
+    );
+  };
+
+  const postingPeriod = useMemo(() => {
+    if (postingPeriods.length === 0) {
+      return null;
+    }
+
+    const sortedPostingPeriods = [...postingPeriods].sort();
+    return sortedPostingPeriods[sortedPostingPeriods.length - 1];
+  }, [postingPeriods]);
+
+  const reportPeriodDisplay = useMemo(
+    () => formatPeriodRangeLabel(reportPeriods, "Report Period"),
+    [reportPeriods],
+  );
+
+  const postingPeriodDisplay = useMemo(
+    () => formatPeriodRangeLabel(postingPeriods, "Posting Period"),
+    [postingPeriods],
+  );
 
   /* ====================================================================
      SUPPLIER SEARCH
@@ -847,31 +923,37 @@ export default function UploadDashboard() {
   ==================================================================== */
 
   const validateReportSelections = () => {
-    if (selectedPeriods.length === 0) {
+    if (reportPeriods.length === 0) {
       toast({
-        title: "Period required",
+        title: "Report Period required",
         description:
-          "Please select at least one accounting period before submitting.",
+          "Please select at least one Report Period before submitting.",
         variant: "destructive",
       });
-
       return false;
     }
 
-    const lockedSelections = selectedPeriods.filter((period) =>
+    if (postingPeriods.length === 0) {
+      toast({
+        title: "Posting Period required",
+        description:
+          "Please select at least one Posting Period before submitting.",
+        variant: "destructive",
+      });
+      return false;
+    }
+
+    const lockedSelections = postingPeriods.filter((period) =>
       lockedPeriodSet.has(period),
     );
 
     if (lockedSelections.length > 0) {
       toast({
-        title: "Locked period selected",
-
+        title: "Locked Posting Period selected",
         description:
-          "Remove the locked period(s): " + lockedSelections.join(", "),
-
+          "Remove the locked posting period(s): " + lockedSelections.join(", "),
         variant: "destructive",
       });
-
       return false;
     }
 
@@ -947,9 +1029,13 @@ export default function UploadDashboard() {
 
           note: isZeroSales ? "Zero Sales Declaration" : "",
 
-          period: selectedPeriods[0] || null,
-
-          periods: selectedPeriods,
+          // New period model:
+          // - report_periods are used for searching/reporting.
+          // - posting_period is the ending posting period and drives NetSuite.
+          // - posting_periods preserves the selected posting range.
+          report_periods: reportPeriods,
+          posting_period: postingPeriod,
+          posting_periods: postingPeriods,
 
           bp_code: resolvedBpCode,
 
@@ -1012,8 +1098,10 @@ export default function UploadDashboard() {
        * Internal users receive a completely cleared Supplier field.
        */
       setReportType("Report");
-      setSelectedPeriods([]);
-      setPeriodPicker("");
+      setReportPeriods([]);
+      setReportPeriodPicker("");
+      setPostingPeriods([]);
+      setPostingPeriodPicker("");
       setContractId("");
       setContractOptions([]);
       setShowContractOptions(false);
@@ -1060,27 +1148,27 @@ export default function UploadDashboard() {
 
   const disabled = !SAS_URL;
 
-  const selectedPickerPeriod = normalizePeriodKey(periodPicker);
+  const selectedPostingPickerPeriod = normalizePeriodKey(postingPeriodPicker);
 
-  const periodPickerStatus = useMemo(() => {
-    if (!selectedPickerPeriod) {
+  const postingPeriodPickerStatus = useMemo(() => {
+    if (!selectedPostingPickerPeriod) {
       return null;
     }
 
-    if (lockedPeriodSet.has(selectedPickerPeriod)) {
+    if (lockedPeriodSet.has(selectedPostingPickerPeriod)) {
       return {
         type: "locked",
         label: "Locked",
-        message: "Reports cannot be submitted for this period.",
+        message: "Reports cannot be posted to this accounting period.",
       };
     }
 
     return {
       type: "open",
       label: "Open",
-      message: "This accounting period is available for submission.",
+      message: "This accounting period is available for posting.",
     };
-  }, [lockedPeriodSet, selectedPickerPeriod]);
+  }, [lockedPeriodSet, selectedPostingPickerPeriod]);
 
   /* ====================================================================
      UI
@@ -1112,12 +1200,13 @@ export default function UploadDashboard() {
             </h2>
 
             <p className="mt-1 text-sm text-slate-500">
-              Provide report-level details before uploading a report, accrual,
-              or Zero Sales Declaration.
+              Provide report-level details, Report Period(s), and Posting
+              Period(s) before uploading a report, accrual, or Zero Sales
+              Declaration.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 gap-5 p-5 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid grid-cols-1 gap-5 p-5 sm:grid-cols-2 xl:grid-cols-5">
             {/* UPLOAD TYPE */}
             <div className="min-w-0">
               <label className="mb-1 block text-sm font-medium text-slate-700">
@@ -1140,27 +1229,92 @@ export default function UploadDashboard() {
               </p>
             </div>
 
-            {/* MULTI-PERIOD */}
+            {/* REPORT PERIOD(S) */}
             <div className="min-w-0">
               <label className="mb-1 block text-sm font-medium text-slate-700">
-                Period(s)
+                Report Period(s)
                 <span className="ml-1 text-red-500">*</span>
               </label>
 
               <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
                 <input
                   type="month"
-                  value={periodPicker}
-                  onChange={(event) => setPeriodPicker(event.target.value)}
+                  value={reportPeriodPicker}
+                  onChange={(event) =>
+                    setReportPeriodPicker(event.target.value)
+                  }
                   className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2.5 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
                 />
 
                 <button
                   type="button"
-                  onClick={addSelectedPeriod}
+                  onClick={addReportPeriod}
+                  disabled={!normalizePeriodKey(reportPeriodPicker)}
+                  className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2.5 font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600"
+                >
+                  <Plus className="h-4 w-4" />
+                  Add
+                </button>
+              </div>
+
+              {reportPeriods.length > 0 ? (
+                <>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {reportPeriods.map((selectedPeriod) => (
+                      <span
+                        key={selectedPeriod}
+                        className="inline-flex max-w-full items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-xs font-medium text-sky-800"
+                      >
+                        <span className="truncate">{selectedPeriod}</span>
+
+                        <button
+                          type="button"
+                          onClick={() => removeReportPeriod(selectedPeriod)}
+                          className="shrink-0 rounded-full p-0.5 hover:bg-sky-200"
+                          aria-label={`Remove ${selectedPeriod}`}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+
+                  <div className="mt-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-medium text-sky-800">
+                    {reportPeriodDisplay}
+                  </div>
+                </>
+              ) : (
+                <p className="mt-1.5 text-xs text-slate-500">
+                  Select one month or add multiple months for a Report Period
+                  range. Report Periods are used for searching and reporting and
+                  are not locked.
+                </p>
+              )}
+            </div>
+
+            {/* POSTING PERIOD(S) */}
+            <div className="min-w-0">
+              <label className="mb-1 block text-sm font-medium text-slate-700">
+                Posting Period(s)
+                <span className="ml-1 text-red-500">*</span>
+              </label>
+
+              <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
+                <input
+                  type="month"
+                  value={postingPeriodPicker}
+                  onChange={(event) =>
+                    setPostingPeriodPicker(event.target.value)
+                  }
+                  className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2.5 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                />
+
+                <button
+                  type="button"
+                  onClick={addPostingPeriod}
                   disabled={
-                    !selectedPickerPeriod ||
-                    lockedPeriodSet.has(selectedPickerPeriod)
+                    !selectedPostingPickerPeriod ||
+                    lockedPeriodSet.has(selectedPostingPickerPeriod)
                   }
                   className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2.5 font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600"
                 >
@@ -1169,48 +1323,61 @@ export default function UploadDashboard() {
                 </button>
               </div>
 
-              {periodPickerStatus && (
+              {postingPeriodPickerStatus && (
                 <div
                   className={`mt-2 flex items-start gap-2 rounded-lg border px-3 py-2 text-xs ${
-                    periodPickerStatus.type === "open"
+                    postingPeriodPickerStatus.type === "open"
                       ? "border-emerald-200 bg-emerald-50 text-emerald-700"
                       : "border-red-200 bg-red-50 text-red-700"
                   }`}
                 >
-                  {periodPickerStatus.type === "locked" && (
+                  {postingPeriodPickerStatus.type === "locked" && (
                     <LockKeyhole className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                   )}
 
                   <span>
-                    <strong>{periodPickerStatus.label}:</strong>{" "}
-                    {periodPickerStatus.message}
+                    <strong>{postingPeriodPickerStatus.label}:</strong>{" "}
+                    {postingPeriodPickerStatus.message}
                   </span>
                 </div>
               )}
 
-              {selectedPeriods.length > 0 ? (
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {selectedPeriods.map((selectedPeriod) => (
-                    <span
-                      key={selectedPeriod}
-                      className="inline-flex max-w-full items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-800"
-                    >
-                      <span className="truncate">{selectedPeriod}</span>
-
-                      <button
-                        type="button"
-                        onClick={() => removeSelectedPeriod(selectedPeriod)}
-                        className="shrink-0 rounded-full p-0.5 hover:bg-emerald-200"
-                        aria-label={`Remove ${selectedPeriod}`}
+              {postingPeriods.length > 0 ? (
+                <>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {postingPeriods.map((selectedPeriod) => (
+                      <span
+                        key={selectedPeriod}
+                        className="inline-flex max-w-full items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-800"
                       >
-                        <X className="h-3 w-3" />
-                      </button>
-                    </span>
-                  ))}
-                </div>
+                        <span className="truncate">{selectedPeriod}</span>
+
+                        <button
+                          type="button"
+                          onClick={() => removePostingPeriod(selectedPeriod)}
+                          className="shrink-0 rounded-full p-0.5 hover:bg-emerald-200"
+                          aria-label={`Remove ${selectedPeriod}`}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+
+                  <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800">
+                    {postingPeriodDisplay}
+                    {postingPeriods.length > 1 && postingPeriod && (
+                      <span className="mt-1 block">
+                        NetSuite Posting Period: {postingPeriod}
+                      </span>
+                    )}
+                  </div>
+                </>
               ) : (
                 <p className="mt-1.5 text-xs text-slate-500">
-                  Select and add one or more months.
+                  Select one month or add multiple months for a Posting Period
+                  range. The ending month is used as the NetSuite posting
+                  period.
                 </p>
               )}
 
@@ -1219,7 +1386,7 @@ export default function UploadDashboard() {
                   <LockKeyhole className="mt-0.5 h-3.5 w-3.5 shrink-0" />
 
                   <span className="min-w-0 break-words">
-                    Locked periods: {lockedPeriods.join(", ")}
+                    Locked posting periods: {lockedPeriods.join(", ")}
                   </span>
                 </div>
               )}
