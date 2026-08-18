@@ -221,22 +221,31 @@ function getLockedValue(item) {
 function isEmptyRow(row) {
   const values = Object.values(row);
 
+  /*
+   * Ignore total/summary rows.
+   */
   if (
     values.some(
-      (value) => value && value.toString().toLowerCase().includes("total"),
+      (value) =>
+        value && value.toString().trim().toLowerCase().includes("total"),
     )
   ) {
     return true;
   }
 
+  /*
+   * A real numeric zero is NOT an empty value.
+   *
+   * Only blank/null/"-" values make a row empty.
+   */
   return values.every((value) => {
-    if (value == null) {
+    if (value === null || value === undefined) {
       return true;
     }
 
-    const cleanValue = value.toString().trim().replace(/[$,]/g, "");
+    const cleanValue = String(value).trim().replace(/[$,]/g, "");
 
-    return cleanValue === "" || cleanValue === "-" || cleanValue === "0";
+    return cleanValue === "" || cleanValue === "-";
   });
 }
 
@@ -291,42 +300,63 @@ function validateBusinessRules(file, data, headers) {
 
     const rowNumber = index + 2;
 
-    const purchase =
-      parseFloat(
-        String(row.purchase_dollars ?? "")
-          .replace(/[$,]/g, "")
-          .trim(),
-      ) || 0;
+    // ==================================================================
+    // PURCHASE / CAF VALUES
+    // ------------------------------------------------------------------
+    // Important:
+    // Blank values must remain blank/null for DQ purposes.
+    // Do NOT convert blank values to zero.
+    // ==================================================================
 
-    const caf =
-      parseFloat(
-        String(row.caf ?? "")
-          .replace(/[$,%]/g, "")
-          .trim(),
-      ) || 0;
+    const purchaseRaw = String(row.purchase_dollars ?? "")
+      .replace(/[$,]/g, "")
+      .trim();
 
-    const cafDollars =
-      parseFloat(
-        String(row.caf_dollars ?? "")
-          .replace(/[$,]/g, "")
-          .trim(),
-      ) || 0;
+    const cafRaw = String(row.caf ?? "")
+      .replace(/[$,%]/g, "")
+      .trim();
+
+    const cafDollarsRaw = String(row.caf_dollars ?? "")
+      .replace(/[$,]/g, "")
+      .trim();
+
+    const hasPurchaseValue = purchaseRaw !== "";
+
+    const hasCafValue = cafRaw !== "";
+
+    const hasCafDollarsValue = cafDollarsRaw !== "";
+
+    const purchase = hasPurchaseValue ? Number(purchaseRaw) : null;
+
+    const caf = hasCafValue ? Number(cafRaw) : null;
+
+    const cafDollars = hasCafDollarsValue ? Number(cafDollarsRaw) : null;
 
     // ==================================================================
     // DQ CHANGE #1
-    // IGNORE ZERO-DOLLAR SALES LINES
+    // IGNORE ONLY EXPLICIT ZERO-DOLLAR SALES LINES
     // ------------------------------------------------------------------
     // Client requirement:
     // If Purchase Dollars = 0 AND CAF Dollars = 0,
     // do not create DQ issues for this row.
+    //
+    // IMPORTANT:
+    // Both values must actually be present.
+    // Blank Purchase / CAF Dollars must continue through normal DQ
+    // validation and generate missing-field warnings.
     // ==================================================================
 
-    const isZeroDollarLine = purchase === 0 && cafDollars === 0;
+    const isZeroDollarLine =
+      hasPurchaseValue &&
+      hasCafDollarsValue &&
+      Number.isFinite(purchase) &&
+      Number.isFinite(cafDollars) &&
+      purchase === 0 &&
+      cafDollars === 0;
 
     if (isZeroDollarLine) {
       return;
     }
-
     // ==================================================================
     // EXISTING CAF CALCULATION VALIDATION
     // ==================================================================
@@ -334,16 +364,27 @@ function validateBusinessRules(file, data, headers) {
     /*
      * Existing uploaded templates store CAF as a decimal rate,
      * for example 0.05 for 5%.
+     *
+     * Only calculate CAF Dollars when all three values are actually
+     * present and numeric. Missing values are handled by REQUIRED_FIELDS
+     * validation below.
      */
-    const expected = Math.round(purchase * caf * 100) / 100;
 
-    const rounded = Math.round(cafDollars * 100) / 100;
+    if (
+      Number.isFinite(purchase) &&
+      Number.isFinite(caf) &&
+      Number.isFinite(cafDollars)
+    ) {
+      const expected = Math.round(purchase * caf * 100) / 100;
 
-    if (expected !== rounded) {
-      errors.push(
-        `Row ${rowNumber}: CAF Dollars mismatch ` +
-          `(expected ${expected}, got ${rounded})`,
-      );
+      const rounded = Math.round(cafDollars * 100) / 100;
+
+      if (expected !== rounded) {
+        errors.push(
+          `Row ${rowNumber}: CAF Dollars mismatch ` +
+            `(expected ${expected}, got ${rounded})`,
+        );
+      }
     }
 
     // ==================================================================

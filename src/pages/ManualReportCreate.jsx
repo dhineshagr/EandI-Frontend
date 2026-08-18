@@ -1022,30 +1022,40 @@ export default function ManualReportCreate() {
     rows.forEach((row, index) => {
       const rowNumber = index + 1;
 
-      const purchaseDollars =
-        Number(
-          String(row.purchase_dollars ?? "")
-            .replace(/[$,]/g, "")
-            .trim(),
-        ) || 0;
-
-      const cafDollars =
-        Number(
-          String(row.caf_dollars ?? "")
-            .replace(/[$,]/g, "")
-            .trim(),
-        ) || 0;
-
       // ================================================================
       // DQ CHANGE #1
-      // IGNORE ZERO-DOLLAR SALES LINES
+      // IGNORE ONLY EXPLICIT ZERO-DOLLAR SALES LINES
       // ----------------------------------------------------------------
-      // Client requirement:
-      // If Purchase Dollars = 0 AND CAF Dollars = 0,
-      // do not generate DQ warnings for this row.
+      // IMPORTANT:
+      // Blank values must NOT be treated as zero.
+      //
+      // Skip DQ only when BOTH values are actually entered
+      // and BOTH numeric values equal zero.
       // ================================================================
 
-      const isZeroDollarLine = purchaseDollars === 0 && cafDollars === 0;
+      const purchaseRaw = String(row.purchase_dollars ?? "")
+        .replace(/[$,]/g, "")
+        .trim();
+
+      const cafDollarsRaw = String(row.caf_dollars ?? "")
+        .replace(/[$,]/g, "")
+        .trim();
+
+      const hasPurchaseValue = purchaseRaw !== "";
+
+      const hasCafDollarsValue = cafDollarsRaw !== "";
+
+      const purchaseDollars = hasPurchaseValue ? Number(purchaseRaw) : null;
+
+      const cafDollars = hasCafDollarsValue ? Number(cafDollarsRaw) : null;
+
+      const isZeroDollarLine =
+        hasPurchaseValue &&
+        hasCafDollarsValue &&
+        Number.isFinite(purchaseDollars) &&
+        Number.isFinite(cafDollars) &&
+        purchaseDollars === 0 &&
+        cafDollars === 0;
 
       if (isZeroDollarLine) {
         return;
