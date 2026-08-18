@@ -597,6 +597,31 @@ export default function ManualReportCreate() {
   );
 
   // ====================================================================
+  // MOST RECENT CLOSED POSTING PERIOD
+  // --------------------------------------------------------------------
+  // Client requirement:
+  // Show only the most recent closed/locked Posting Period.
+  //
+  // IMPORTANT:
+  // accountingPeriods and periodStatusMap still contain ALL periods.
+  // All closed periods continue to be blocked from selection.
+  // ====================================================================
+
+  const mostRecentClosedPeriod = useMemo(() => {
+    const closedPeriods = accountingPeriods
+      .filter((item) => item.status === PERIOD_STATUS.CLOSED && item.period)
+      .map((item) => item.period)
+      .filter(Boolean)
+      .sort();
+
+    if (closedPeriods.length === 0) {
+      return null;
+    }
+
+    return closedPeriods[closedPeriods.length - 1];
+  }, [accountingPeriods]);
+
+  // ====================================================================
   // LOAD ACCOUNTING PERIOD STATUS
   // ====================================================================
 
@@ -1786,6 +1811,16 @@ export default function ManualReportCreate() {
                       Periods cannot be selected.
                     </p>
 
+                    {mostRecentClosedPeriod && (
+                      <div className="mb-3 flex items-start gap-2 rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-600">
+                        <LockKeyhole className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+
+                        <span>
+                          Most recent locked posting period:{" "}
+                          {mostRecentClosedPeriod}
+                        </span>
+                      </div>
+                    )}
                     <div className="flex flex-col gap-2 sm:flex-row">
                       <input
                         type="month"
