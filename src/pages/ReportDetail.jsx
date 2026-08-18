@@ -43,10 +43,20 @@ const READ_ONLY_FIELDS = new Set([
   "cur_id",
   "id",
   "report_number",
+
+  // ================================================================
+  // CLIENT REQUIREMENT
+  // Member Number must be read-only on View Report.
+  // Users should use Selected Member Number for member matching.
+  // ================================================================
+  "member_number",
+
   "approved_by",
   "approved_at_utc",
   "created_at_utc",
   "updated_at_utc",
+
+  // Auto-populated from Selected Member Number.
   "matched_member_name",
 ]);
 
