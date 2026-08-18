@@ -583,15 +583,30 @@ export default function UploadDashboard() {
     [accountingPeriods],
   );
 
-  const lockedPeriods = useMemo(
-    () =>
-      accountingPeriods
-        .filter(getLockedValue)
-        .map(getPeriodValue)
-        .filter(Boolean)
-        .sort(),
-    [accountingPeriods],
-  );
+  // ====================================================================
+  // MOST RECENT LOCKED POSTING PERIOD
+  // --------------------------------------------------------------------
+  // Client requirement:
+  // The Upload Dashboard should display only the most recent locked month.
+  //
+  // IMPORTANT:
+  // lockedPeriodSet still contains ALL locked periods and continues to
+  // prevent users from selecting any locked Posting Period.
+  // ====================================================================
+
+  const mostRecentLockedPeriod = useMemo(() => {
+    const locked = accountingPeriods
+      .filter(getLockedValue)
+      .map(getPeriodValue)
+      .filter(Boolean)
+      .sort();
+
+    if (locked.length === 0) {
+      return null;
+    }
+
+    return locked[locked.length - 1];
+  }, [accountingPeriods]);
   /* ====================================================================
      CONTRACTS FOR SUPPLIER
   ==================================================================== */
@@ -1553,12 +1568,12 @@ export default function UploadDashboard() {
                 </p>
               )}
 
-              {lockedPeriods.length > 0 && (
+              {mostRecentLockedPeriod && (
                 <div className="mt-2 flex items-start gap-1.5 rounded-lg bg-slate-100 p-2 text-xs text-slate-600">
                   <LockKeyhole className="mt-0.5 h-3.5 w-3.5 shrink-0" />
 
                   <span className="min-w-0 break-words">
-                    Locked posting periods: {lockedPeriods.join(", ")}
+                    Most recent locked posting period: {mostRecentLockedPeriod}
                   </span>
                 </div>
               )}
